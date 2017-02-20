@@ -59,6 +59,12 @@ public:
 		return r.reduce();
 	}
 	
+	// auto opBinary(string op : "*")(Scalar b) const {
+	auto mul(Scalar b) const {
+		auto r = mulImpl(this, b);
+		return r.reduce();
+	}
+	
 	auto opEquals(Scalar b) const {
 		auto eq = 1;
 		foreach (i; 0 .. 4) {
@@ -218,6 +224,19 @@ private:
 		ulong c1;
 		uint c2;
 		
+		auto add(ulong a) {
+			ucent acc = a;
+			
+			acc += c0;
+			c0 = cast(ulong) acc;
+			acc >>= 64;
+			acc += c1;
+			c1 = cast(ulong) acc;
+			acc >>= 64;
+			acc += c2;
+			c2 = cast(uint) acc;
+		}
+		
 		auto muladd(ulong a, ulong b) {
 			ucent acc = a;
 			acc *= b;
@@ -225,15 +244,15 @@ private:
 			// a*b + c cannot exceed 128 bits
 			// if a, b and c are 64 bits.
 			acc += c0;
-			c0 = cast(ulong) (acc & ulong.max);
+			c0 = cast(ulong) acc;
 			acc >>= 64;
 			
 			acc += c1;
-			c1 = cast(ulong) (acc & ulong.max);
+			c1 = cast(ulong) acc;
 			acc >>= 64;
 			
 			acc += c2;
-			c2 = cast(uint) (acc & uint.max);
+			c2 = cast(uint) acc;
 			acc >>= 32;
 			
 			// assert(acc == 0, "Overflow");
@@ -245,6 +264,12 @@ private:
 			c1 = c2;
 			c2 = 0;
 			return r;
+		}
+		
+		auto clear() {
+			c0 = 0;
+			c1 = 0;
+			c2 = 0;
 		}
 	}
 	
@@ -261,10 +286,107 @@ private:
 			auto b = base();
 			auto c = b.complement();
 			
-			// Do the thing...
+			// NB: We could make this algorithm independent of
+			// base by computing how many leading zero c has.
+			// Each reduction steps eliminates that many bits.
+			assert(c.parts[2] == 1);
+			assert(c.parts[3] == 0);
 			
-			auto r = AddResult(low, !!(high.parts[0] & 0x01));
-			return r.reduce();
+			/**
+			 * Reduce to 385 bits via r = low + high * -base.
+			 *
+			 * -base is a 129 digit number and high a 256bits one.
+			 * The end result of this operation is 385bits long.
+			 */
+			ulong[4] rlow;
+			Accumulator rhigh;
+			
+			Accumulator acc;
+			
+			acc.add(low.parts[0]);
+			acc.muladd(high.parts[0], c.parts[0]);
+			rlow[0] = acc.extract();
+			
+			acc.add(low.parts[1]);
+			acc.muladd(high.parts[1], c.parts[0]);
+			acc.muladd(high.parts[0], c.parts[1]);
+			rlow[1] = acc.extract();
+			
+			acc.add(low.parts[2]);
+			acc.muladd(high.parts[2], c.parts[0]);
+			acc.muladd(high.parts[1], c.parts[1]);
+			acc.muladd(high.parts[0], c.parts[2]);
+			rlow[2] = acc.extract();
+			
+			acc.add(low.parts[3]);
+			acc.muladd(high.parts[3], c.parts[0]);
+			acc.muladd(high.parts[2], c.parts[1]);
+			acc.muladd(high.parts[1], c.parts[2]);
+			rlow[3] = acc.extract();
+			
+			acc.muladd(high.parts[3], c.parts[1]);
+			acc.muladd(high.parts[2], c.parts[2]);
+			rhigh.c0 = acc.extract();
+			
+			acc.muladd(high.parts[3], c.parts[2]);
+			rhigh.c1 = acc.extract();
+			rhigh.c2 = cast(uint) acc.extract();
+			
+			// Reproduce the process to go from 385 to 258 bits.
+			ulong[4] r;
+			uint carries;
+			
+			acc.clear();
+			
+			acc.add(rlow[0]);
+			acc.muladd(rhigh.c0, c.parts[0]);
+			r[0] = acc.extract();
+			
+			acc.add(rlow[1]);
+			acc.muladd(rhigh.c1, c.parts[0]);
+			acc.muladd(rhigh.c0, c.parts[1]);
+			r[1] = acc.extract();
+			
+			acc.add(rlow[2]);
+			acc.muladd(rhigh.c2, c.parts[0]);
+			acc.muladd(rhigh.c1, c.parts[1]);
+			acc.muladd(rhigh.c0, c.parts[2]);
+			r[2] = acc.extract();
+			
+			acc.add(rlow[3]);
+			acc.muladd(rhigh.c2, c.parts[1]);
+			acc.muladd(rhigh.c1, c.parts[2]);
+			r[3] = acc.extract();
+			
+			acc.muladd(rhigh.c2, c.parts[2]);
+			carries = cast(uint) acc.extract();
+			
+			// Last round, we know that we have at most one carry,
+			// So we do it the add way.
+			ucent uacc;
+			
+			uacc += r[0];
+			uacc += (cast(ucent) c.parts[0]) * carries;
+			r[0] = cast(ulong) uacc;
+			uacc >>= 64;
+			
+			uacc += r[1];
+			uacc += (cast(ucent) c.parts[1]) * carries;
+			r[1] = cast(ulong) uacc;
+			uacc >>= 64;
+			
+			uacc += r[2];
+			uacc += (cast(ucent) c.parts[2]) * carries;
+			r[2] = cast(ulong) uacc;
+			uacc >>= 64;
+			
+			uacc += r[3];
+			uacc += (cast(ucent) c.parts[3]) * carries;
+			r[3] = cast(ulong) uacc;
+			uacc >>= 64;
+			
+			auto ar = AddResult(Scalar(r), !!(uacc & 0x01));
+			return ar.reduce();
 		}
 	}
 }
