@@ -33,7 +33,7 @@ public:
 		
 		// This must be unrolled, or the compiler
 		// figures out it is a noop when mask is 0.
-		// FIXME: Rhe compiler is still a smart ass and use CMOV.
+		// FIXME: The compiler is still a smart ass and uses CMOV.
 		acc += a.parts[0];
 		acc += b.parts[0];
 		r[0] = (cast(ulong) acc) & mask;
@@ -65,13 +65,27 @@ public:
 		return r.reduce();
 	}
 	
-	auto opEquals(Scalar b) const {
-		auto eq = 1;
-		foreach (i; 0 .. 4) {
-			eq &= (parts[i] == b.parts[i]);
+	auto square() const {
+		auto r = mulImpl(this, this);
+		return r.reduce();
+	}
+	
+	auto squaren(uint N)() const {
+		auto r = this;
+		for (uint i = 0; i < N; i++) {
+			r = r.square();
 		}
 		
-		return !!eq;
+		return r;
+	}
+	
+	auto opEquals(Scalar b) const {
+		ulong neq;
+		foreach (i; 0 .. 4) {
+			neq |= (parts[i] ^ b.parts[i]);
+		}
+		
+		return !neq;
 	}
 	
 	auto opCmp(Scalar b) const {
@@ -94,6 +108,10 @@ public:
 		}
 		
 		return bigger - smaller;
+	}
+	
+	auto inverse() const {
+		return inverseImpl(this);
 	}
 	
 private:
@@ -230,9 +248,11 @@ private:
 			acc += c0;
 			c0 = cast(ulong) acc;
 			acc >>= 64;
+			
 			acc += c1;
 			c1 = cast(ulong) acc;
 			acc >>= 64;
+			
 			acc += c2;
 			c2 = cast(uint) acc;
 		}
@@ -254,8 +274,6 @@ private:
 			acc += c2;
 			c2 = cast(uint) acc;
 			acc >>= 32;
-			
-			// assert(acc == 0, "Overflow");
 		}
 		
 		auto extract() {
@@ -365,28 +383,206 @@ private:
 			// So we do it the add way.
 			ucent uacc;
 			
-			uacc += r[0];
-			uacc += (cast(ucent) c.parts[0]) * carries;
-			r[0] = cast(ulong) uacc;
-			uacc >>= 64;
-			
-			uacc += r[1];
-			uacc += (cast(ucent) c.parts[1]) * carries;
-			r[1] = cast(ulong) uacc;
-			uacc >>= 64;
-			
-			uacc += r[2];
-			uacc += (cast(ucent) c.parts[2]) * carries;
-			r[2] = cast(ulong) uacc;
-			uacc >>= 64;
-			
-			uacc += r[3];
-			uacc += (cast(ucent) c.parts[3]) * carries;
-			r[3] = cast(ulong) uacc;
-			uacc >>= 64;
+			foreach (i; 0 .. 4) {
+				uacc += r[i];
+				uacc += (cast(ucent) c.parts[0]) * carries;
+				r[i] = cast(ulong) uacc;
+				uacc >>= 64;
+			}
 			
 			auto ar = AddResult(Scalar(r), !!(uacc & 0x01));
 			return ar.reduce();
 		}
+	}
+	
+	static inverseImpl(Scalar a) {
+		/**
+		 * As it turns out, a ^ -1 == a ^ (p - 2) mod p.
+		 *
+		 * As a first step, we compute various value of a ^ (2 ^ n - 1)
+		 *
+		 * Then we shift the exponent left by squaring, and add ones using
+		 * the precomputed powers using a ^ x * a ^ y = a ^ (x + y).
+		 */
+		
+		// XXX: Computing a ^ 0b101 and a ^ 0b1001 would save some mul.
+		
+		// Compute various (2 ^ n - 1) powers of a.
+		auto a02 = a.mul(a.square());
+		auto a03 = a.mul(a02.square());
+		auto a04 = a.mul(a03.square());
+		
+		auto a06 = a04.squaren!2();
+		a06 = a06.mul(a02);
+		
+		auto a07 = a.mul(a06.square());
+		auto a08 = a.mul(a07.square());
+		
+		auto a15 = a08.squaren!7();
+		a15 = a15.mul(a07);
+		
+		auto a30 = a15.squaren!15();
+		a30 = a30.mul(a15);
+		
+		auto a60 = a30.squaren!30();
+		a60 = a60.mul(a30);
+		
+		auto a120 = a60.squaren!60();
+		a120 = a120.mul(a60);
+		
+		auto a127 = a120.squaren!7();
+		a127 = a127.mul(a07);
+		
+		// The 127 heading ones of the base and one 0.
+		// 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFE
+		auto r = a127;
+		
+		/**
+		 * Next digit is 0xBAAEDCE6AF48A03B
+		 * We also have 0 remaining from previous digits.
+		 *
+		 * 0xBAAE = 10111010 10101110
+		 * 0xDCE6 = 11011100 11100110
+		 * 0xAF48 = 10101111 01001000
+		 * 0xA03B = 10100000 00111011
+		 */
+		// 01
+		r = r.squaren!2();
+		r = r.mul(a);
+		
+		// 0111
+		r = r.squaren!4();
+		r = r.mul(a03);
+		
+		// 01
+		r = r.squaren!2();
+		r = r.mul(a);
+		
+		// 01
+		r = r.squaren!2();
+		r = r.mul(a);
+		
+		// 0111
+		r = r.squaren!4();
+		r = r.mul(a03);
+		
+		// 011
+		r = r.squaren!3();
+		r = r.mul(a02);
+		
+		// 0111
+		r = r.squaren!4();
+		r = r.mul(a03);
+		
+		// 00111
+		r = r.squaren!5();
+		r = r.mul(a03);
+		
+		// 0011
+		r = r.squaren!4();
+		r = r.mul(a02);
+		
+		// 01
+		r = r.squaren!2();
+		r = r.mul(a);
+		
+		// 01
+		r = r.squaren!2();
+		r = r.mul(a);
+		
+		// 01111
+		r = r.squaren!5();
+		r = r.mul(a04);
+		
+		// 01
+		r = r.squaren!2();
+		r = r.mul(a);
+		
+		// 001
+		r = r.squaren!3();
+		r = r.mul(a);
+		
+		// 0001
+		r = r.squaren!4();
+		r = r.mul(a);
+		
+		// 01
+		r = r.squaren!2();
+		r = r.mul(a);
+		
+		// 0000000111
+		r = r.squaren!10();
+		r = r.mul(a03);
+		
+		/**
+		 * Next digit is 0xBFD25E8CD0364141 minus 2.
+		 * We also have 011 remaining from previous digits.
+		 *
+		 * 0xBFD2 = 10111111 11010010
+		 * 0x5E8C = 01011110 10001100
+		 * 0xD036 = 11010000 00110110
+		 * 0x413F = 01000001 00111111
+		 */
+		// 0111
+		r = r.squaren!4();
+		r = r.mul(a03);
+		
+		// 011111111
+		r = r.squaren!9();
+		r = r.mul(a08);
+		
+		// 01
+		r = r.squaren!2();
+		r = r.mul(a);
+		
+		// 001
+		r = r.squaren!3();
+		r = r.mul(a);
+		
+		// 001
+		r = r.squaren!3();
+		r = r.mul(a);
+		
+		// 01111
+		r = r.squaren!5();
+		r = r.mul(a04);
+		
+		// 01
+		r = r.squaren!2();
+		r = r.mul(a);
+		
+		// 00011
+		r = r.squaren!5();
+		r = r.mul(a02);
+		
+		// 0011
+		r = r.squaren!4();
+		r = r.mul(a02);
+		
+		// 01
+		r = r.squaren!2();
+		r = r.mul(a);
+		
+		// 00000011
+		r = r.squaren!8();
+		r = r.mul(a02);
+		
+		// 011
+		r = r.squaren!3();
+		r = r.mul(a02);
+		
+		// 001
+		r = r.squaren!3();
+		r = r.mul(a);
+		
+		// 000001
+		r = r.squaren!6();
+		r = r.mul(a);
+		
+		// 00111111
+		r = r.squaren!8();
+		r = r.mul(a06);
+		
+		return r;
 	}
 }
