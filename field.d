@@ -69,6 +69,10 @@ public:
 		this.normalized = normalized;
 	}
 	
+	this(ulong s) {
+		this(Element(0, 0, 0, s));
+	}
+	
 	auto propagateCarries() const {
 		// We start by reducing all the MSB bits in part[4]
 		// so that we will at most have one carry to reduce.
@@ -121,6 +125,23 @@ public:
 	// auto opBinary(string op : "*")(Scalar b) const {
 	auto mul(ComputeElement b) const {
 		return mulImpl(this, b);
+	}
+	
+	auto square() const {
+		return mulImpl(this, this);
+	}
+	
+	auto squaren(uint N)() const {
+		auto r = this;
+		for (uint i = 0; i < N; i++) {
+			r = r.square();
+		}
+		
+		return r;
+	}
+	
+	auto inverse() const {
+		return inverseImpl(this);
 	}
 	
 private:
@@ -254,5 +275,71 @@ private:
 		
 		// We are left with at most one carry to propagate forward.
 		return ComputeElement(r, 1, false);
+	}
+	
+	static inverseImpl(ComputeElement e) {
+		/**
+		 * As it turns out, e ^ -1 == e ^ (p - 2) mod p.
+		 *
+		 * As a first step, we compute various value of e ^ (2 ^ n - 1)
+		 *
+		 * Then we shift the exponent left by squaring, and add ones using
+		 * the precomputed powers using e ^ x * e ^ y = e ^ (x + y).
+		 */
+		
+		// Compute various (2 ^ n - 1) powers of e.
+		auto e02 = e.mul(e.square());
+		auto e03 = e.mul(e02.square());
+		
+		auto e06 = e03.squaren!3();
+		e06 = e06.mul(e03);
+		
+		auto e09 = e06.squaren!3();
+		e09 = e09.mul(e03);
+		
+		auto e11 = e09.squaren!2();
+		e11 = e11.mul(e02);
+		
+		auto e22 = e11.squaren!11();
+		e22 = e22.mul(e11);
+		
+		auto e44 = e22.squaren!22();
+		e44 = e44.mul(e22);
+		
+		auto e88 = e44.squaren!44();
+		e88 = e88.mul(e44);
+		
+		auto e176 = e88.squaren!88();
+		e176 = e176.mul(e88);
+		
+		auto e220 = e176.squaren!44();
+		e220 = e220.mul(e44);
+		
+		auto e223 = e220.squaren!3();
+		e223 = e223.mul(e03);
+		
+		// The 223 heading ones of the base.
+		// 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFE
+		// 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFEFFFFFC2F
+		auto r = e223;
+		
+		// Now we got a 0 and 0xFFFFFC2D
+		r.squaren!23();
+		r.mul(e22);
+		
+		// XXX: Computing e ^ 0b101 and would save some mul here,
+		// 00001
+		r.squaren!5();
+		r.mul(e);
+		
+		// 011
+		r.squaren!3();
+		r.mul(e02);
+		
+		// 01
+		r.squaren!2();
+		r.mul(e);
+		
+		return r;
 	}
 }
