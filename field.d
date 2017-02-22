@@ -105,7 +105,8 @@ public:
 		z0 |= parts[4];
 		z1 &= parts[4] ^ 0xF000000000000;
 		
-		return (z0 == 0) | (z1 == 0xFFFFFFFFFFFFF);
+		// This doesn't result in a branch.
+		return (z0 == 0) || (z1 == 0xFFFFFFFFFFFFF);
 	}
 	
 	static select(bool cond, ComputeElement a, ComputeElement b) {
@@ -246,10 +247,12 @@ public:
 		return inverseImpl(this);
 	}
 	
-	auto muln(uint N)() const {
+	// XXX: For some reason, auto is detected as const by SDC.
+	// This needs to be figured out.
+	ComputeElement muln(uint N)() const {
 		static assert(N <= 2048, "");
 		
-		auto r = this;
+		ComputeElement r = this;
 		
 		// We can branch on carryCount because it is only dependent on
 		// control flow. If other part of the code do not branch based
