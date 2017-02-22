@@ -146,6 +146,25 @@ public:
 		return r;
 	}
 	
+	// auto opUnary(string op : "-")() const {
+	auto negate() const {
+		auto cc = carryCount + 1;
+		
+		ulong[5] r;
+		r[0] = 0xFFFFEFFFFFC2F * cc - parts[0];
+		r[1] = 0xFFFFFFFFFFFFF * cc - parts[1];
+		r[2] = 0xFFFFFFFFFFFFF * cc - parts[2];
+		r[3] = 0xFFFFFFFFFFFFF * cc - parts[3];
+		r[4] = 0xFFFFFFFFFFFFF * cc - parts[4];
+		
+		return ComputeElement(r, cc, false);
+	}
+	
+	// auto opBinary(string op : "-")(Scalar b) const {
+	auto sub(ComputeElement b) const {
+		return add(b.negate());
+	}
+	
 	// auto opBinary(string op : "*")(Scalar b) const {
 	auto mul(ComputeElement b) const {
 		ComputeElement a = this;
