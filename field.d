@@ -119,16 +119,65 @@ public:
 	
 	// auto opBinary(string op : "+")(Scalar b) const {
 	auto add(ComputeElement b) const {
-		return addImpl(this, b);
+		auto a = this;
+		
+		// FIXME: in contract.
+		assert(a.carryCount < 2048);
+		assert(b.carryCount < 2048);
+		
+		ulong[5] parts;
+		foreach (i; 0 .. 5) {
+			parts[i] = a.parts[i] + b.parts[i];
+		}
+		
+		auto cc = a.carryCount + b.carryCount + 1;
+		auto r = ComputeElement(parts, cc, false);
+		
+		// We can branch on carryCount because it is only dependent on
+		// control flow. If other part of the code do not branch based
+		// on values, then carryCount do not depend on value.
+		if (cc >= 2048) {
+			// We have 12bits to accumulate carries.
+			// It means we can't add numbers which accumulated
+			// 2048 carries or more.
+			r = r.propagateCarries();
+		}
+		
+		return r;
 	}
 	
 	// auto opBinary(string op : "*")(Scalar b) const {
 	auto mul(ComputeElement b) const {
-		return mulImpl(this, b);
+		ComputeElement a = this;
+		
+		// We can branch on carryCount because it is only dependent on
+		// control flow. If other part of the code do not branch based
+		// on values, then carryCount do not depend on value.
+		if (a.carryCount >= 32) {
+			a = a.propagateCarries();
+		}
+		
+		// We can branch on carryCount because it is only dependent on
+		// control flow. If other part of the code do not branch based
+		// on values, then carryCount do not depend on value.
+		if (b.carryCount >= 32) {
+			b = b.propagateCarries();
+		}
+		
+		return ComputeElement(mulImpl(a, b), 1, false);
 	}
 	
 	auto square() const {
-		return mulImpl(this, this);
+		auto e = this;
+		
+		// We can branch on carryCount because it is only dependent on
+		// control flow. If other part of the code do not branch based
+		// on values, then carryCount do not depend on value.
+		if (e.carryCount >= 32) {
+			e = e.propagateCarries();
+		}
+		
+		return ComputeElement(mulImpl(e, e), 1, false);
 	}
 	
 	auto squaren(uint N)() const {
@@ -145,43 +194,10 @@ public:
 	}
 	
 private:
-	static addImpl(ComputeElement a, ComputeElement b) {
-		ComputeElement r;
-		
-		foreach (i; 0 .. 5) {
-			r.parts[i] = a.parts[i] + b.parts[i];
-		}
-		
-		r.carryCount = a.carryCount + b.carryCount + 1;
-		r.normalized = false;
-		
-		// We can branch on carryCount because it is only dependent on
-		// control flow. If other part of the code do not branch based
-		// on values, then carryCount do not depend on value.
-		if (r.carryCount >= 2048) {
-			// We have 12bits to accumulate carries.
-			// It means we can't add numbers which accumulated
-			// 2048 carries or more.
-			r = r.propagateCarries();
-		}
-		
-		return r;
-	}
-	
 	static mulImpl(ComputeElement a, ComputeElement b) {
-		// We can branch on carryCount because it is only dependent on
-		// control flow. If other part of the code do not branch based
-		// on values, then carryCount do not depend on value.
-		if (a.carryCount >= 32) {
-			a = a.propagateCarries();
-		}
-		
-		// We can branch on carryCount because it is only dependent on
-		// control flow. If other part of the code do not branch based
-		// on values, then carryCount do not depend on value.
-		if (b.carryCount >= 32) {
-			b = b.propagateCarries();
-		}
+		// FIXME: in contract.
+		assert(a.carryCount < 32);
+		assert(b.carryCount < 32);
 		
 		/**
 		 * We will do a full 512 bits multiply, and then reduce.
@@ -274,7 +290,7 @@ private:
 		r[1] += cast(ulong) acc;
 		
 		// We are left with at most one carry to propagate forward.
-		return ComputeElement(r, 1, false);
+		return r;
 	}
 	
 	static inverseImpl(ComputeElement e) {
