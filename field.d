@@ -193,6 +193,28 @@ public:
 		return inverseImpl(this);
 	}
 	
+	auto muln(uint N)() const {
+		static assert(N <= 2048, "");
+		
+		auto r = this;
+		
+		// We can branch on carryCount because it is only dependent on
+		// control flow. If other part of the code do not branch based
+		// on values, then carryCount do not depend on value.
+		if (r.carryCount * N > 2048) {
+			r = r.propagateCarries();
+		}
+		
+		foreach (i; 0 .. 5) {
+			r.parts[i] *= N;
+		}
+		
+		r.carryCount *= N;
+		r.normalized = false;
+		
+		return r;
+	}
+	
 private:
 	static mulImpl(ComputeElement a, ComputeElement b) {
 		// FIXME: in contract.
