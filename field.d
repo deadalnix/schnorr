@@ -88,6 +88,20 @@ public:
 		return ComputeElement(r, 1, normalized);
 	}
 	
+	static select(bool cond, ComputeElement a, ComputeElement b) {
+		auto maska = -ulong(cond);
+		auto maskb = ~maska;
+		
+		ulong[5] r;
+		foreach (i; 0 .. 5) {
+			// FIXME: The compiler is still a smart ass and uses CMOV.
+			r[i] = (a.parts[i] & maska) | (b.parts[i] & maskb);
+		}
+		
+		auto cc = a.carryCount > b.carryCount ? a.carryCount : b.carryCount;
+		return ComputeElement(r, cc, a.normalized && b.normalized);
+	}
+	
 	auto normalize() const {
 		auto e = propagateCarries();
 		
