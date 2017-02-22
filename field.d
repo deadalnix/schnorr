@@ -88,6 +88,26 @@ public:
 		return ComputeElement(r, 1, normalized);
 	}
 	
+	auto propagateAndZeroCheck() {
+		this = propagateCarries();
+		
+		// Now we check for 0 or p, which would normalize to 0.
+		ulong z0 = parts[0];
+		ulong z1 = parts[0] ^ (Complement - 1);
+		
+		z0 |= parts[1];
+		z1 &= parts[1];
+		z0 |= parts[2];
+		z1 &= parts[2];
+		z0 |= parts[3];
+		z1 &= parts[3];
+		
+		z0 |= parts[4];
+		z1 &= parts[4] ^ 0xF000000000000;
+		
+		return (z0 == 0) | (z1 == 0xFFFFFFFFFFFFF);
+	}
+	
 	static select(bool cond, ComputeElement a, ComputeElement b) {
 		auto maska = -ulong(cond);
 		auto maskb = ~maska;
