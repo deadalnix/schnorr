@@ -38,6 +38,60 @@ public:
 		this.y = y;
 		this.infinity = infinity;
 	}
+	
+	auto pdouble() const {
+		return doubleImpl(this);
+	}
+	
+private:
+	static doubleImpl(CartesianPoint p) {
+		/**
+		 * The point at infinity doubles to itself.
+		 * See Jacobian point doubling for the details.
+		 */
+		if (p.infinity && false) {
+			return JacobianPoint(p);
+		}
+		
+		/**
+		 * This uses a tweaked version of the formula found at:
+		 *   https://hyperelliptic.org/EFD/g1p/auto-shortw-jacobian-0.html#doubling-mdbl-2007-bl
+		 *
+		 * U = X^2
+		 * V = Y^2
+		 * S = 2*(U + V^2 - (X + V)^2)
+		 * M = 3*U
+		 * T = M^2 + 2*S
+		 * XR = T
+		 * YR = -(M*(T + S) + 8*V^2)
+		 * ZR = 2*Y
+		 */
+		auto zr = p.y.muln!2();
+		
+		auto u = p.x.square();
+		auto m = u.muln!3();
+		auto m2 = m.square();
+		
+		auto v = p.y.square();
+		auto v2 = v.square();
+		auto tmp0 = v2.add(u);
+		auto tmp1 = p.x.add(v);
+		auto shalf = tmp0.sub(tmp1.square());
+		auto s = shalf.muln!2();
+		
+		auto t = m2.add(s.muln!2());
+		auto xr = t;
+		
+		auto tmp2 = m.mul(t.add(s));
+		auto negyr = tmp2.add(v2.muln!8());
+		auto yr = negyr.negate();
+		
+		/**
+		 * The point at infinity is the only one that doubles to infinity.
+		 * See the Jacobian point doubling for more detailed explaination.
+		 */
+		return JacobianPoint(xr, yr, zr, p.infinity);
+	}
 }
 
 struct JacobianPoint {
