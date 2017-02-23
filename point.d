@@ -5,6 +5,12 @@ private:
 	import crypto.field;
 	Element x;
 	Element y;
+	
+public:
+	this(Element x, Element y) {
+		this.x = x;
+		this.y = y;
+	}
 }
 
 struct CartesianPoint {
@@ -39,6 +45,12 @@ public:
 		this.infinity = infinity;
 	}
 	
+	auto normalize() const {
+		// XXX: in contract
+		assert(!infinity);
+		return Point(x.normalize(), y.normalize());
+	}
+	
 	auto pdouble() const {
 		return doubleImpl(this);
 	}
@@ -66,11 +78,11 @@ private:
 		 * YR = -(M*(T + S) + 8*V^2)
 		 * ZR = 2*Y
 		 */
-		auto zr = p.y.muln!2();
-		
 		auto u = p.x.square();
 		auto m = u.muln!3();
 		auto m2 = m.square();
+		
+		auto zr = p.y.muln!2();
 		
 		auto v = p.y.square();
 		auto v2 = v.square();
@@ -121,6 +133,13 @@ public:
 		this.y = y;
 		this.z = z;
 		this.infinity = infinity;
+	}
+	
+	auto normalize() const {
+		// XXX: in contract
+		assert(!infinity);
+		auto p = CartesianPoint(this);
+		return p.normalize();
 	}
 	
 	// auto opBinary(string op : "+")() const {
