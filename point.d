@@ -249,12 +249,12 @@ private:
 		}
 		
 		/**
-		 * Just like libsecp256k1, we are using the following formula:
+		 * We use a variation of libsecp256k1's formula:
 		 *   T = 3*X^2
 		 *   U = 2*Y^2
-		 *   V = 2*X*Y^2
-		 *   XR = T^2 - 4*V
-		 *   YR = T*(6*V - T^2) - 2*U^2
+		 *   V = -2*X*Y^2
+		 *   XR = T^2 + 4*V
+		 *   YR = -(T*(6*V + T^2) + 2*U^2)
 		 *   ZR = 2*Y*Z
 		 *
 		 * Quoting from libsecp256k1:
@@ -272,15 +272,17 @@ private:
 		
 		auto y2 = p.y.square();
 		auto u = y2.muln!2();
-		auto v = u.mul(p.x);
+		auto negv = u.mul(p.x);
+		auto v = v.negate();
 		
-		auto xr = t2.sub(v.muln!4());
+		auto xr = t2.add(negv.muln!4());
 		
 		auto u2 = u.square();
 		auto twou2 = u2.muln!2();
-		auto sixv = v.muln!6();
-		auto tmp = t.mul(sixv.sub(t2));
-		auto yr = tmp.sub(twou2);
+		auto negsixv = negv.muln!6();
+		auto tmp = t.mul(negsixv.add(t2));
+		auto negyr = tmp.add(twou2);
+		auto yr = negyr.negate();
 		
 		return JacobianPoint(xr, yr, zr, p.infinity);
 	}
