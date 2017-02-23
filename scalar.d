@@ -23,7 +23,7 @@ public:
 	
 	// auto opUnary(string op : "-")() const {
 	auto negate() const {
-		auto a = base();
+		auto a = order();
 		auto b = bitflip();
 		
 		auto mask = ulong(this.opEquals(Scalar(0)) - 1);
@@ -115,7 +115,7 @@ public:
 	}
 	
 private:
-	static Scalar base() {
+	static Scalar order() {
 		/**
 		 * secp256k1's order.
 		 *
@@ -163,12 +163,12 @@ private:
 		}
 		
 		auto needReduce() const {
-			return (result.opCmp(base()) < 0) | carry;
+			return (result.opCmp(order()) < 0) | carry;
 		}
 		
 		auto reduce() const {
-			auto b = base();
-			b = b.complement();
+			auto o = order();
+			auto b = o.complement();
 			
 			auto mask = -ulong(needReduce());
 			
@@ -301,8 +301,8 @@ private:
 		}
 		
 		auto reduce() const {
-			auto b = base();
-			auto c = b.complement();
+			auto o = order();
+			auto c = o.complement();
 			
 			// NB: We could make this algorithm independent of
 			// base by computing how many leading zero c has.
