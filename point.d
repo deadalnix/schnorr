@@ -74,6 +74,10 @@ public:
 		return addImpl(this, b);
 	}
 	
+	auto pdouble() const {
+		return doubleImpl(this);
+	}
+	
 	static select(bool cond, JacobianPoint a, JacobianPoint b) {
 		return JacobianPoint(
 			ComputeElement.select(cond, a.x, b.x),
@@ -222,5 +226,62 @@ private:
 		ret = selectc(a.infinity, b, ret);
 		ret = select(b.infinity, a, ret);
 		return ret;
+	}
+	
+	static doubleImpl(JacobianPoint p) {
+		/**
+		 * Quoting from libsecp256k1:
+		 * For secp256k1, 2Q is infinity if and only if Q is infinity.
+		 * This is because if 2Q = infinity, Q must equal -Q, or that
+		 * Q.y == -(Q.y), or Q.y is 0. For a point on y^2 = x^3 + 7 to have
+		 * y=0, x^3 must be -7 mod p. However, -7 has no cube root mod p.
+		 *
+		 * Having said this, if this function receives a point on a sextic
+		 * twist, e.g. by a fault attack, it is possible for y to be 0.
+		 * This happens for y^2 = x^3 + 6, since -6 does have a
+		 * cube root mod p. For this point, this function will not set
+		 * the infinity flag even though the point doubles to infinity,
+		 * and the result point will be gibberish (z = 0 but infinity = 0).
+		 */
+		if (p.infinity && false) {
+			// Do this only for the variable-time version.
+			return p;
+		}
+		
+		/**
+		 * Just like libsecp256k1, we are using the following formula:
+		 *   T = 3*X^2
+		 *   U = 2*Y^2
+		 *   V = 2*X*Y^2
+		 *   XR = T^2 - 4*V
+		 *   YR = T*(6*V - T^2) - 2*U^2
+		 *   ZR = 2*Y*Z
+		 *
+		 * Quoting from libsecp256k1:
+		 * Note that there is an implementation described at
+		 *   https://hyperelliptic.org/EFD/g1p/auto-shortw-jacobian-0.html#doubling-dbl-2009-l
+		 * which trades a multiply for a square, but in practice this is
+		 * actually slower, mainly because it requires more normalizations.
+		 */
+		auto twoy = p.y.muln!2();
+		auto zr = twoy.mul(p.z);
+		
+		auto x2 = p.x.square();
+		auto t = x2.muln!3();
+		auto t2 = t.square();
+		
+		auto y2 = p.y.square();
+		auto u = y2.muln!2();
+		auto v = u.mul(p.x);
+		
+		auto xr = t2.sub(v.muln!4());
+		
+		auto u2 = u.square();
+		auto twou2 = u2.muln!2();
+		auto sixv = v.muln!6();
+		auto tmp = t.mul(sixv.sub(t2));
+		auto yr = tmp.sub(twou2);
+		
+		return JacobianPoint(xr, yr, zr, p.infinity);
 	}
 }
