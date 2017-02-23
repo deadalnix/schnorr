@@ -22,11 +22,15 @@ public:
 	// Consider moving this to the JacobianPoint
 	// and do z normalization in the process.
 	this(JacobianPoint p) {
-		auto z = p.z.inverse();
-		auto z2 = z.square();
-		auto z3 = z.mul(z2);
+		auto zinv = p.z.inverse();
 		
-		this(p.x.mul(z2), p.y.mul(z3), p.infinity);
+		auto zinv2 = zinv.square();
+		auto cx = zinv2.mul(p.x);
+		
+		auto zinv3 = zinv2.mul(zinv);
+		auto cy = zinv3.mul(p.y);
+		
+		this(cx, cy, p.infinity);
 	}
 	
 	this(ComputeElement x, ComputeElement y, bool infinity) {
@@ -90,18 +94,21 @@ private:
 	static addImpl(JacobianPoint a, CartesianPoint b) {
 		/**
 		 * Just like libsecp256k1, we are using the following formula:
-		 *   U1 = X1*Z2^2, U2 = X2*Z1^2
-		 *   S1 = Y1*Z2^3, S2 = Y2*Z1^3
+		 *   U1 = X1*Z2^2
+		 *   U2 = X2*Z1^2
+		 *   S1 = Y1*Z2^3
+		 *   S2 = Y2*Z1^3
 		 *   Z = Z1*Z2
-		 *   T = U1+U2
-		 *   M = S1+S2
-		 *   R = T^2-U1*U2
+		 *   T = U1 + U2
+		 *   M = S1 + S2
+		 *   R = T^2 - U1*U2
 		 *   D = M or U1 - U2
 		 *   N = R or 2*S1
 		 *   Q = T*M^2
-		 *   XR = 4*(R^2-Q)
+		 *   V = 2*(R^2 - Q)
+		 *   XR = 2*V
 		 *   YM = M*D^3
-		 *   YR = 4*(R*(3*Q-2*R^2)-YM)
+		 *   YR = 4*(R*(Q - V) - YM)
 		 *   ZR = 2*M*Z
 		 *
 		 * Because p is in cartesian coordinates, Z2 = 1.
@@ -189,25 +196,22 @@ private:
 		auto ym = ComputeElement.select(degenerate, ComputeElement(0), m4);
 		
 		// ZR = 2*M*Z
-		auto zrhalf = m.mul(a.z);
-		auto zr = zrhalf.muln!2();
+		auto twom = m.muln!2();
+		auto zr = twom.mul(a.z);
 		auto zrzero = zr.propagateAndZeroCheck();
 		
 		auto q = m2.mul(t);
 		auto negq = q.negate();
 		
-		// XR = 4*(R^2 - Q)
+		// XR = 2*V
 		auto r2 = r.square();
-		auto xrquarter = r.add(negq);
-		auto xhalf = xrquarter.muln!2();
-		auto xr = xrquarter.muln!4();
+		auto vhalf = r.add(negq);
+		auto v = vhalf.muln!2();
+		auto xr = v.muln!2();
 		
-		// Because xrquarter = R^2-Q, we use 3*Q-2*R^2 = Q - 2*(R^2-Q)
-		// as a shortcut so that
-		// YR = 4*(R*(Q - xhalf)-YM)
-		// And then we avoid negating too much by doing
-		// YR = -4*(R*(2*xrquarter + -Q) + YM)
-		auto tmp = r.mul(xhalf.add(negq));
+		// And we avoid negating too much by doing
+		// YR = -4*(R*(V - Q) + YM)
+		auto tmp = r.mul(v.add(negq));
 		auto negyrquarter = tmp.add(ym);
 		auto yrquarter = negyrquarter.negate();
 		auto yr = yrquarter.muln!4();
