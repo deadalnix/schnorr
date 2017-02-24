@@ -21,6 +21,10 @@ public:
 		this(0, 0, 0, s);
 	}
 	
+	auto getParts() const {
+		return parts;
+	}
+	
 	// auto opUnary(string op : "-")() const {
 	auto negate() const {
 		auto a = order();

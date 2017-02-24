@@ -20,6 +20,19 @@ public:
 	this(ulong s) {
 		this(0, 0, 0, s);
 	}
+	
+	static select(bool cond, Element a, Element b) {
+		auto maska = -ulong(cond);
+		auto maskb = ~maska;
+		
+		ulong[4] r;
+		foreach (i; 0 .. 4) {
+			// FIXME: The compiler is still a smart ass and uses CMOV.
+			r[i] = (a.parts[i] & maska) | (b.parts[i] & maskb);
+		}
+		
+		return Element(r);
+	}
 }
 
 struct ComputeElement {

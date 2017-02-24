@@ -11,6 +11,15 @@ public:
 		this.x = x;
 		this.y = y;
 	}
+	
+	// TODO: implicit cast to CartesianPoint.
+	
+	static select(bool cond, Point a, Point b) {
+		return Point(
+			Element.select(cond, a.x, b.x),
+			Element.select(cond, a.y, b.y),
+		);
+	}
 }
 
 struct CartesianPoint {
