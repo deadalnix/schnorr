@@ -39,7 +39,6 @@ private:
 	 * 12 bits, so if this gets too high, we need to propagate carries.
 	 */
 	uint carryCount = 0;
-	bool normalized = true;
 	
 	enum Mask = (1UL << 52) - 1;
 	
@@ -63,10 +62,9 @@ public:
 		parts[4] = e.parts[3] >> 16;
 	}
 	
-	this(ulong[5] parts, uint carryCount, bool normalized) {
+	this(ulong[5] parts, uint carryCount) {
 		this.parts = parts;
 		this.carryCount = carryCount;
-		this.normalized = normalized;
 	}
 	
 	this(ulong s) {
@@ -85,7 +83,7 @@ public:
 			acc >>= 52;
 		}
 		
-		return ComputeElement(r, 1, normalized);
+		return ComputeElement(r, 1);
 	}
 	
 	auto propagateAndZeroCheck() {
@@ -120,7 +118,7 @@ public:
 		}
 		
 		auto cc = a.carryCount > b.carryCount ? a.carryCount : b.carryCount;
-		return ComputeElement(r, cc, a.normalized && b.normalized);
+		return ComputeElement(r, cc);
 	}
 	
 	auto normalize() const {
@@ -166,7 +164,7 @@ public:
 		}
 		
 		auto cc = a.carryCount + b.carryCount + 1;
-		auto r = ComputeElement(parts, cc, false);
+		auto r = ComputeElement(parts, cc);
 		
 		// We can branch on carryCount because it is only dependent on
 		// control flow. If other part of the code do not branch based
@@ -192,7 +190,7 @@ public:
 		r[3] = 0xFFFFFFFFFFFFF * cc - parts[3];
 		r[4] = 0xFFFFFFFFFFFFF * cc - parts[4];
 		
-		return ComputeElement(r, cc, false);
+		return ComputeElement(r, cc);
 	}
 	
 	// auto opBinary(string op : "-")(Scalar b) const {
@@ -218,7 +216,7 @@ public:
 			b = b.propagateCarries();
 		}
 		
-		return ComputeElement(mulImpl(a, b), 1, false);
+		return ComputeElement(mulImpl(a, b), 1);
 	}
 	
 	auto square() const {
@@ -231,7 +229,7 @@ public:
 			e = e.propagateCarries();
 		}
 		
-		return ComputeElement(mulImpl(e, e), 1, false);
+		return ComputeElement(mulImpl(e, e), 1);
 	}
 	
 	auto squaren(uint N)() const {
@@ -266,8 +264,6 @@ public:
 		}
 		
 		r.carryCount *= N;
-		r.normalized = false;
-		
 		return r;
 	}
 	
