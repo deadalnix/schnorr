@@ -51,6 +51,11 @@ public:
 		return Point(x.normalize(), y.normalize());
 	}
 	
+	// auto opUnary(string op : "-")() const {
+	auto negate() const {
+		return CartesianPoint(x, y.negate(), infinity);
+	}
+	
 	auto pdouble() const {
 		return doubleImpl(this);
 	}
@@ -140,6 +145,11 @@ public:
 		assert(!infinity);
 		auto p = CartesianPoint(this);
 		return p.normalize();
+	}
+	
+	// auto opUnary(string op : "-")() const {
+	auto negate() const {
+		return JacobianPoint(x, y.negate(), z, infinity);
 	}
 	
 	// auto opBinary(string op : "+")() const {
@@ -346,7 +356,7 @@ private:
 		auto y2 = p.y.square();
 		auto u = y2.muln!2();
 		auto negv = u.mul(p.x);
-		auto v = v.negate();
+		auto v = negv.negate();
 		
 		auto xr = t2.add(negv.muln!4());
 		
