@@ -30,7 +30,7 @@ public:
 		auto a = order();
 		auto b = bitflip();
 		
-		auto mask = ulong(this.opEquals(Scalar(0)) - 1);
+		auto mask = ulong(this.opEquals(Scalar(0))) - 1;
 		
 		ulong[4] r;
 		ucent acc = 1;
@@ -75,7 +75,7 @@ public:
 	}
 	
 	auto squaren(uint N)() const {
-		auto r = this;
+		Scalar r = this;
 		for (uint i = 0; i < N; i++) {
 			r = r.square();
 		}
@@ -98,16 +98,16 @@ public:
 		foreach_reverse (i; 0 .. 4) {
 			// The higher ILP version require a few extra instructions.
 			// TODO: Need to benchmark which one is best.
-			enum withILP = false;
-			static if (withILP) {
+			enum WithILP = false;
+			static if (WithILP) {
 				auto isBigger  = (parts[i] > b.parts[i]) & ~smaller;
 				auto isSmaller = (parts[i] < b.parts[i]) & ~bigger;
 				
-				bigger  = isBigger;
-				smaller = isSmaller;
+				bigger  |= isBigger;
+				smaller |= isSmaller;
 			} else {
-				bigger  = (parts[i] > b.parts[i]) & ~smaller;
-				smaller = (parts[i] < b.parts[i]) & ~bigger;
+				bigger  |= (parts[i] > b.parts[i]) & ~smaller;
+				smaller |= (parts[i] < b.parts[i]) & ~bigger;
 			}
 		}
 		
@@ -119,6 +119,16 @@ public:
 	}
 	
 private:
+	void dump() const {
+		printf(
+			"%.16lx %.16lx %.16lx %.16lx".ptr,
+			parts[3],
+			parts[2],
+			parts[1],
+			parts[0],
+		);
+	}
+	
 	static Scalar order() {
 		/**
 		 * secp256k1's order.
@@ -167,7 +177,7 @@ private:
 		}
 		
 		auto needReduce() const {
-			return (result.opCmp(order()) < 0) | carry;
+			return (result.opCmp(order()) >= 0) | carry;
 		}
 		
 		auto reduce() const {
@@ -205,7 +215,7 @@ private:
 		Scalar low, high;
 		Accumulator acc;
 		
-		// Just the plain old scholl multiplication.
+		// Just the plain old school multiplication.
 		acc.muladd(a.parts[0], b.parts[0]);
 		low.parts[0] = acc.extract();
 		
@@ -389,7 +399,7 @@ private:
 			
 			foreach (i; 0 .. 4) {
 				uacc += r[i];
-				uacc += (cast(ucent) c.parts[0]) * carries;
+				uacc += (cast(ucent) c.parts[i]) * carries;
 				r[i] = cast(ulong) uacc;
 				uacc >>= 64;
 			}
@@ -410,7 +420,6 @@ private:
 		 */
 		
 		// XXX: Computing a ^ 0b101 and a ^ 0b1001 would save some mul.
-		
 		// Compute various (2 ^ n - 1) powers of a.
 		auto a02 = a.mul(a.square());
 		auto a03 = a.mul(a02.square());
@@ -457,6 +466,10 @@ private:
 		// 0111
 		r = r.squaren!4();
 		r = r.mul(a03);
+		
+		// 01
+		r = r.squaren!2();
+		r = r.mul(a);
 		
 		// 01
 		r = r.squaren!2();
@@ -589,4 +602,96 @@ private:
 		
 		return r;
 	}
+}
+
+void main() {
+	static testAdd(Scalar a, Scalar b, Scalar r) {
+		assert(r.opEquals(a.add(b)), "a + b == r");
+		assert(r.opEquals(b.add(a)), "b + a == r");
+	}
+	
+	static testNeg(Scalar n, Scalar negn) {
+		assert(n.opEquals(negn.negate()), "n = -negn");
+		assert(negn.opEquals(n.negate()), "-n = negn");
+	}
+	
+	static testMul(Scalar a, Scalar b, Scalar r) {
+		assert(r.opEquals(a.mul(b)), "a * b = r");
+		assert(r.opEquals(b.mul(a)), "b * a = r");
+	}
+	
+	auto zero = Scalar(0);
+	testAdd(zero, zero, zero);
+	testNeg(zero, zero);
+	testMul(zero, zero, zero);
+	
+	assert(zero.opEquals(zero.square()), "0^2 == 0");
+	
+	auto one = Scalar(1);
+	testAdd(zero, one, one);
+	testMul(zero, one, zero);
+	testMul(one, one, one);
+	
+	assert(one.opEquals(one.square()), "1^2 == 1");
+	
+	auto two = Scalar(2);
+	testAdd(one, one, two);
+	testAdd(zero, two, two);
+	testMul(zero, two, zero);
+	testMul(one, two, two);
+	
+	auto four = Scalar(4);
+	assert(four.opEquals(two.square()), "2^2 == 4");
+	
+	auto negone = Scalar(
+		0xFFFFFFFFFFFFFFFF,
+		0xFFFFFFFFFFFFFFFE,
+		0xBAAEDCE6AF48A03B,
+		0xBFD25E8CD0364140,
+	);
+	
+	testAdd(one, negone, zero);
+	testNeg(one, negone);
+	testMul(one, negone, negone);
+	testMul(negone, negone, one);
+	
+	assert(one.opEquals(negone.square()), "(-1)^2 == 1");
+	
+	auto negtwo = Scalar(
+		0xFFFFFFFFFFFFFFFF,
+		0xFFFFFFFFFFFFFFFE,
+		0xBAAEDCE6AF48A03B,
+		0xBFD25E8CD036413F,
+	);
+	
+	testAdd(one, negtwo, negone);
+	testAdd(negone, negone, negtwo);
+	testNeg(two, negtwo);
+	testMul(negone, two, negtwo);
+	testMul(negone, negtwo, two);
+	
+	// Squaring.
+	auto n = Scalar(
+		0x7aff790c9a22b99c,
+		0x94856ed9231e3fe9,
+		0x188b5dd4e6107cc4,
+		0x9982b148178f639f,
+	);
+	
+	auto n2 = Scalar(
+		0x7eac0091012b3f31,
+		0x37841a6cb8c280d7,
+		0x66d6a03f95ab4e89,
+		0xc74024c254a54050,
+	);
+	
+	auto nsqr = n.square();
+	assert(nsqr.opEquals(n2), "n^2 == n2");
+	
+	// Test inversion.
+	testMul(one, one.inverse(), one);
+	testMul(negone, negone.inverse(), one);
+	testMul(two, two.inverse(), one);
+	testMul(negtwo, negtwo.inverse(), one);
+	testMul(four, four.inverse(), one);
 }

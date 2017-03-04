@@ -258,7 +258,7 @@ public:
 		return inverseImpl(this);
 	}
 	
-	// XXX: For some reason, auto is detected as const by SDC.
+	// FIXME: For some reason, auto is detected as const by SDC.
 	// This needs to be figured out.
 	ComputeElement muln(uint N)() const {
 		static assert(N <= 2048, "");
