@@ -21,6 +21,15 @@ public:
 		this(0, 0, 0, s);
 	}
 	
+	auto opEquals(Element b) const {
+		ulong neq;
+		foreach (i; 0 .. 4) {
+			neq |= parts[i] ^ b.parts[i];
+		}
+		
+		return neq == 0;
+	}
+	
 	static select(bool cond, Element a, Element b) {
 		auto maska = -ulong(cond);
 		auto maskb = ~maska;
@@ -54,6 +63,7 @@ private:
 	uint carryCount = 0;
 	
 	enum Mask = (1UL << 52) - 1;
+	enum MsbMask = (1UL << 48) - 1;
 	
 	/**
 	 * secp256k1 is defined over a prime field over
@@ -70,8 +80,8 @@ public:
 	this(Element e) {
 		parts[0] = e.parts[0] & Mask;
 		parts[1] = (e.parts[0] >> 52 | e.parts[1] << 12) & Mask;
-		parts[2] = (e.parts[1] >> 40 | e.parts[1] << 24) & Mask;
-		parts[3] = (e.parts[2] >> 28 | e.parts[1] << 36) & Mask;
+		parts[2] = (e.parts[1] >> 40 | e.parts[2] << 24) & Mask;
+		parts[3] = (e.parts[2] >> 28 | e.parts[3] << 36) & Mask;
 		parts[4] = e.parts[3] >> 16;
 	}
 	
@@ -87,11 +97,15 @@ public:
 	auto propagateCarries() const {
 		// We start by reducing all the MSB bits in part[4]
 		// so that we will at most have one carry to reduce.
-		ulong acc = (parts[4] >> 48) * Complement;
+		ulong[5] r = parts;
+		ulong acc = (r[4] >> 48) * Complement;
 		
-		ulong[5] r;
+		// Clear the carries in part[4].
+		r[4] &= MsbMask;
+		
+		// Propagate.
 		foreach (i; 0 .. 5) {
-			acc += parts[i];
+			acc += r[i];
 			r[i] = acc & Mask;
 			acc >>= 52;
 		}
@@ -138,14 +152,13 @@ public:
 		auto e = propagateCarries();
 		
 		// Check if there is an overflow.
-		auto msbAllOnes = e.parts[4] == ((1UL << 48) - 1);
+		auto msbAllOnes = e.parts[4] == MsbMask;
 		msbAllOnes &= (e.parts[1] & e.parts[2] & e.parts[3]) == Mask;
 		auto tooGreat = msbAllOnes & (e.parts[0] >= 0xFFFFFFFEFFFFFC2F);
 		auto overflow = (e.parts[4] >> 48) | tooGreat;
 		
 		ulong[4] r;
 		ucent acc = -ulong(overflow) & Complement;
-		
 		acc += parts[0];
 		acc += (cast(ucent) e.parts[1]) << 52;
 		r[0] = cast(ulong) acc;
@@ -158,7 +171,7 @@ public:
 		acc >>= 64;
 		acc += cast(ucent) (e.parts[4] << 16);
 		r[3] = cast(ulong) acc;
-		acc >>= 64;
+		assert(acc >> 64 == 0, "Residual carry detected");
 		
 		return Element(r);
 	}
@@ -201,7 +214,7 @@ public:
 		r[1] = 0xFFFFFFFFFFFFF * cc - parts[1];
 		r[2] = 0xFFFFFFFFFFFFF * cc - parts[2];
 		r[3] = 0xFFFFFFFFFFFFF * cc - parts[3];
-		r[4] = 0xFFFFFFFFFFFFF * cc - parts[4];
+		r[4] = 0x0FFFFFFFFFFFF * cc - parts[4];
 		
 		return ComputeElement(r, cc);
 	}
@@ -218,14 +231,14 @@ public:
 		// We can branch on carryCount because it is only dependent on
 		// control flow. If other part of the code do not branch based
 		// on values, then carryCount do not depend on value.
-		if (a.carryCount >= 32) {
+		if (a.carryCount >= 1024) {
 			a = a.propagateCarries();
 		}
 		
 		// We can branch on carryCount because it is only dependent on
 		// control flow. If other part of the code do not branch based
 		// on values, then carryCount do not depend on value.
-		if (b.carryCount >= 32) {
+		if (b.carryCount >= 1024) {
 			b = b.propagateCarries();
 		}
 		
@@ -238,7 +251,7 @@ public:
 		// We can branch on carryCount because it is only dependent on
 		// control flow. If other part of the code do not branch based
 		// on values, then carryCount do not depend on value.
-		if (e.carryCount >= 32) {
+		if (e.carryCount >= 1024) {
 			e = e.propagateCarries();
 		}
 		
@@ -254,6 +267,11 @@ public:
 		return r;
 	}
 	
+	auto opEquals(ComputeElement b) const {
+		auto diff = sub(b);
+		return diff.propagateAndZeroCheck();
+	}
+	
 	auto inverse() const {
 		return inverseImpl(this);
 	}
@@ -261,14 +279,14 @@ public:
 	// FIXME: For some reason, auto is detected as const by SDC.
 	// This needs to be figured out.
 	ComputeElement muln(uint N)() const {
-		static assert(N <= 2048, "");
+		static assert(N > 0 && N < 2048, "N must be between 1 and 2048");
 		
 		ComputeElement r = this;
 		
 		// We can branch on carryCount because it is only dependent on
 		// control flow. If other part of the code do not branch based
 		// on values, then carryCount do not depend on value.
-		if (r.carryCount * N > 2048) {
+		if ((r.carryCount + 1) * N >= 2048) {
 			r = r.propagateCarries();
 		}
 		
@@ -276,23 +294,50 @@ public:
 			r.parts[i] *= N;
 		}
 		
+		// Existing carries accumulating.
 		r.carryCount *= N;
+		
+		// Carries from LSB due to additions.
+		r.carryCount += N - 1;
+		
 		return r;
 	}
 	
 private:
+	void dump() const {
+		printf(
+			"%.16lx %.16lx %.16lx %.16lx %.16lx (%d)".ptr,
+			parts[4],
+			parts[3],
+			parts[2],
+			parts[1],
+			parts[0],
+			carryCount,
+		);
+	}
+	
 	static mulImpl(ComputeElement a, ComputeElement b) {
+		/**
+		 * We limit the multiplication to less that 1024 carries accumulated.
+		 * This ensure that the carries fit in 10 bits and the whole numbers
+		 * we are multiplying are in fact 266 bits. The end result of the
+		 * multiplication is 532 bits.
+		 *
+		 * As a result, we accumulate up to 16 bits of carries in the last
+		 * part of our multiply, and 4 bits mid way in rlow[4] which account
+		 * for the extra 20 bits of the multiply.
+		 */
 		// FIXME: in contract.
-		assert(a.carryCount < 32);
-		assert(b.carryCount < 32);
+		assert(a.carryCount < 1024);
+		assert(b.carryCount < 1024);
 		
 		/**
 		 * We will do a full 512 bits multiply, and then reduce.
 		 */
 		ulong[5] rlow, rhigh;
 		
-		// Because we limited the carryCount, we know partsq aren't
-		// larger than 56bits, so acc can be a ucent.
+		// Because we limited the carryCount, we know parts aren't
+		// larger than 62 bits, so acc can be a ucent.
 		ucent acc;
 		
 		acc += (cast(ucent) a.parts[0]) * b.parts[0];
@@ -348,27 +393,41 @@ private:
 		acc >>= 52;
 		
 		rhigh[4] = cast(ulong) acc;
+		
+		assert((acc >> 64) == 0, "Residual carry detected");
 		acc = 0;
 		
 		/**
-		 * Reduce via r = rlow + rhigh * complement.
+		 * Reduce via r = rlow + rhigh * (complement << 4).
 		 *
-		 * Complement is a 33bits number so r is 289bits.
+		 * Complement is a 33bits number so r is 293bits.
 		 */
 		ulong[5] r;
 		
 		foreach (i; 0 .. 5) {
-			acc += rlow[i];
-			acc += (cast(ucent) rhigh[i]) * Complement;
-			r[i] = cast(ulong) acc & Mask;
 			acc >>= 52;
+			acc += rlow[i];
+			// We accumulated 4 extra bits in rlow[4] so the whole
+			// rhigh is shifted by 4 bits. We need to shift the
+			// complement as well.
+			acc += (cast(ucent) rhigh[i]) * (Complement << 4);
+			r[i] = cast(ulong) acc & Mask;
 		}
 		
+		// Fixup after the loop to get only 48 bits in the MSB part.
+		r[4] = cast(ulong) acc & MsbMask;
+		acc >>= 48;
+		
 		ulong carries = cast(ulong) acc;
+		assert((acc >> 64) == 0, "Residual carry detected");
 		
 		/**
 		 * Final reduce round. For that round, we don't need to
 		 * fully propagate the carry in order to speeds things up.
+		 *
+		 * carries is 64 bits and Complement 33 bits. The multiplication
+		 * is 97 bits, so we bring less than 52 bits in the next part
+		 * which as a result won't produce more than one carry.
 		 */
 		acc = r[0];
 		acc += (cast(ucent) carries) * Complement;
@@ -427,22 +486,147 @@ private:
 		auto r = e223;
 		
 		// Now we got a 0 and 0xFFFFFC2D
-		r.squaren!23();
-		r.mul(e22);
+		r = r.squaren!23();
+		r = r.mul(e22);
 		
 		// XXX: Computing e ^ 0b101 and would save some mul here,
 		// 00001
-		r.squaren!5();
-		r.mul(e);
+		r = r.squaren!5();
+		r = r.mul(e);
 		
 		// 011
-		r.squaren!3();
-		r.mul(e02);
+		r = r.squaren!3();
+		r = r.mul(e02);
 		
 		// 01
-		r.squaren!2();
-		r.mul(e);
+		r = r.squaren!2();
+		r = r.mul(e);
 		
 		return r;
 	}
+}
+
+void main() {
+	static testAdd(ComputeElement a, ComputeElement b, ComputeElement r) {
+		assert(r.opEquals(a.add(b)), "a + b == r");
+		assert(r.opEquals(b.add(a)), "b + a == r");
+	}
+	
+	static testNeg(ComputeElement n, ComputeElement negn) {
+		assert(n.opEquals(negn.negate()), "n = -negn");
+		assert(negn.opEquals(n.negate()), "-n = negn");
+	}
+	
+	static testMul(ComputeElement a, ComputeElement b, ComputeElement r) {
+		assert(r.opEquals(a.mul(b)), "a * b = r");
+		assert(r.opEquals(b.mul(a)), "b * a = r");
+	}
+	
+	auto zero = ComputeElement(0);
+	
+	testAdd(zero, zero, zero);
+	testNeg(zero, zero);
+	testMul(zero, zero, zero);
+	
+	assert(zero.opEquals(zero.square()), "0^2 == 0");
+	
+	auto one = ComputeElement(1);
+	testAdd(zero, one, one);
+	testMul(zero, one, zero);
+	testMul(one, one, one);
+	
+	assert(one.opEquals(one.square()), "1^2 == 1");
+	
+	auto two = ComputeElement(2);
+	testAdd(one, one, two);
+	testAdd(zero, two, two);
+	testMul(zero, two, zero);
+	testMul(one, two, two);
+	
+	auto four = ComputeElement(4);
+	assert(four.opEquals(two.square()), "2^2 == 4");
+	
+	auto negone = ComputeElement(Element(
+		0xFFFFFFFFFFFFFFFF,
+		0xFFFFFFFFFFFFFFFF,
+		0xFFFFFFFFFFFFFFFF,
+		0xFFFFFFFEFFFFFC2E,
+	));
+	
+	testAdd(one, negone, zero);
+	testNeg(one, negone);
+	testMul(one, negone, negone);
+	testMul(negone, negone, one);
+	
+	assert(one.opEquals(negone.square()), "(-1)^2 == 1");
+	
+	auto negtwo = ComputeElement(Element(
+		0xFFFFFFFFFFFFFFFF,
+		0xFFFFFFFFFFFFFFFF,
+		0xFFFFFFFFFFFFFFFF,
+		0xFFFFFFFEFFFFFC2D,
+	));
+	
+	testAdd(one, negtwo, negone);
+	testAdd(negone, negone, negtwo);
+	testNeg(two, negtwo);
+	testMul(negone, two, negtwo);
+	testMul(negone, negtwo, two);
+	
+	// Test high carry count.
+	static getNegOneWithNCarries(uint cc) {
+		auto one = ComputeElement(1);
+		auto negone = one.negate();
+		assert(negone.carryCount == 1);
+		
+		auto r = negone;
+		foreach (i; 0 .. 5) {
+			r.parts[i] *= (cc + 1);
+		}
+		
+		// So that we get -1 with as many carries as requested.
+		r.parts[0] += cc;
+		r.carryCount = cc;
+		
+		assert(negone.opEquals(r));
+		return r;
+	}
+	
+	foreach (i; 0 .. 1024) {
+		auto n = getNegOneWithNCarries(i);
+		auto m = ComputeElement.mulImpl(n, n);
+		assert(one.opEquals(ComputeElement(m, 1)));
+	}
+	
+	// Squaring.
+	auto n = ComputeElement(Element(
+		0x7aff790c9a22b99c,
+		0x94856ed9231e3fe9,
+		0x188b5dd4e6107cc4,
+		0x9982b148178f639f,
+	));
+	
+	auto n2 = Element(
+		0x251763d423a01613,
+		0x32ec3fd6bb58cb93,
+		0x7dae8f98ab71d214,
+		0xdb3a36e3d3625992,
+	);
+	
+	auto cn2 = ComputeElement(n2);
+	
+	auto nsqr = n.square();
+	assert(nsqr.opEquals(cn2), "n^2 == n2");
+	
+	// Normalization.
+	assert(n2.opEquals(nsqr.normalize()));
+	
+	// Inversion.
+	testMul(one, one.inverse(), one);
+	testMul(negone, negone.inverse(), one);
+	testMul(two, two.inverse(), one);
+	testMul(negtwo, negtwo.inverse(), one);
+	testMul(four, four.inverse(), one);
+	testMul(n, n.inverse(), one);
+	testMul(cn2, cn2.inverse(), one);
 }

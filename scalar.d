@@ -694,4 +694,6 @@ void main() {
 	testMul(two, two.inverse(), one);
 	testMul(negtwo, negtwo.inverse(), one);
 	testMul(four, four.inverse(), one);
+	testMul(n, n.inverse(), one);
+	testMul(n2, n2.inverse(), one);
 }
