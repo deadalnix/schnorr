@@ -1,5 +1,8 @@
 module crypto.point;
 
+// As per "Standards for Efficient Cryptography" (SEC2) 2.7.1.
+enum B = 7;
+
 struct Point {
 private:
 	import crypto.field;
@@ -54,6 +57,15 @@ public:
 		this.infinity = infinity;
 	}
 	
+	this(ComputeElement x, bool parity) {
+		auto x2 = x.square();
+		auto x3 = x2.mul(x);
+		auto y2 = x3.add(ComputeElement(B));
+		y = y2.sqrt();
+		y = ComputeElement.select(y.isOdd() == parity, y, y.negate());
+		this(x, y, false);
+	}
+	
 	auto normalize() const {
 		// XXX: in contract
 		assert(!infinity);
@@ -63,6 +75,22 @@ public:
 	// auto opUnary(string op : "-")() const {
 	auto negate() const {
 		return CartesianPoint(x, y.negate(), infinity);
+	}
+	
+	// auto opBinary(string op : "+")() const {
+	auto add(CartesianPoint b) const {
+		auto a = JacobianPoint(this);
+		return a.add(b);
+	}
+	
+	auto opEquals(CartesianPoint b) const {
+		auto xeq = x.opEquals(b.x);
+		auto yeq = y.opEquals(b.y);
+		
+		auto infneq = infinity ^ b.infinity;
+		auto coordeq = (xeq & yeq) | infinity;
+		
+		return coordeq && !infneq;
 	}
 	
 	auto pdouble() const {
@@ -80,6 +108,8 @@ private:
 		}
 		
 		/**
+		 * Cost: 1M, 5S
+		 *
 		 * This uses a tweaked version of the formula found at:
 		 *   https://hyperelliptic.org/EFD/g1p/auto-shortw-jacobian-0.html#doubling-mdbl-2007-bl
 		 *
@@ -170,6 +200,21 @@ public:
 		return doubleImpl(this);
 	}
 	
+	auto opEquals(CartesianPoint b) const {
+		auto z2 = z.square();
+		auto scalledBX = z2.mul(b.x);
+		auto xeq = x.opEquals(scalledBX);
+		
+		auto z3 = z.mul(z2);
+		auto scalledBY = z3.mul(b.y);
+		auto yeq = y.opEquals(scalledBY);
+		
+		auto infneq = infinity ^ b.infinity;
+		auto coordeq = (xeq & yeq) | infinity;
+		
+		return coordeq && !infneq;
+	}
+	
 	static select(bool cond, JacobianPoint a, JacobianPoint b) {
 		return JacobianPoint(
 			ComputeElement.select(cond, a.x, b.x),
@@ -189,6 +234,8 @@ public:
 private:
 	static addImpl(JacobianPoint a, CartesianPoint b) {
 		/**
+		 * Cost: 7M, 5S
+		 *
 		 * Just like libsecp256k1, we are using the following formula:
 		 *   U1 = X1*Z2^2
 		 *   U2 = X2*Z1^2
@@ -200,12 +247,12 @@ private:
 		 *   R = T^2 - U1*U2
 		 *   D = M or U1 - U2
 		 *   N = R or 2*S1
-		 *   Q = T*M^2
-		 *   V = 2*(R^2 - Q)
-		 *   XR = 2*V
+		 *   Q = T*D^2
+		 *   V = N^2 - Q
+		 *   XR = 4*V
 		 *   YM = M*D^3
-		 *   YR = 4*(R*(Q - V) - YM)
-		 *   ZR = 2*M*Z
+		 *   YR = -4*(N*(V + Q) + YM)
+		 *   ZR = 2*D*Z
 		 *
 		 * Because p is in cartesian coordinates, Z2 = 1.
 		 *
@@ -223,7 +270,7 @@ private:
 		 *
 		 * This algorithm break down when either point is infinity
 		 * or if y1 = -y2 . If either point is infinity, we just set
-		 * the infinty, we conditionally swap.
+		 * the infinity, we conditionally swap.
 		 *
 		 * If a = -b, we can simply set the infinity flag and ignore
 		 * the value computed by the algorithm.
@@ -241,8 +288,8 @@ private:
 		 *     For all pairs of nonzero points (a, b) at least one is defined,
 		 *     so this covers everything.
 		 */
-		auto zsquare = a.z.square();
-		auto u2 = b.x.mul(zsquare);
+		auto z2 = a.z.square();
+		auto u2 = b.x.mul(z2);
 		
 		// Z2 = 1 because p is in cartesian coordinates.
 		auto u1 = a.x;
@@ -251,15 +298,15 @@ private:
 		auto negu2 = u2.negate();
 		auto negu1u2 = negu2.mul(u1);
 		auto r = negu1u2.add(t.square());
-		auto rzero = r.propagateAndZeroCheck();
+		auto rzero = r.zeroCheck();
 		
-		auto zcube = a.z.mul(zsquare);
-		auto s2 = b.y.mul(zcube);
+		auto z3 = a.z.mul(z2);
+		auto s2 = b.y.mul(z3);
 		
 		// Z2 = 1 because p is in cartesian coordinates.
 		auto s1 = a.y;
 		auto m = s1.add(s2);
-		auto mzero = m.propagateAndZeroCheck();
+		auto mzero = m.zeroCheck();
 		
 		/**
 		 * If r and m are 0 then, y1 == -y2 and x1 ^ 3 == x2 ^ 3 but
@@ -286,28 +333,28 @@ private:
 		 */
 		
 		// Either M == D or M == 0. We leverage this to compute
-		// M * D ^ 3 as either M ^ 4 or 0.
-		auto m2 = m.square();
-		auto m4 = m2.square();
-		auto ym = ComputeElement.select(degenerate, ComputeElement(0), m4);
+		// M * D ^ 3 as either D ^ 4 or 0.
+		auto d2 = d.square();
+		auto d4 = d2.square();
+		auto ym = ComputeElement.select(degenerate, ComputeElement(0), d4);
 		
-		// ZR = 2*M*Z
-		auto twom = m.muln!2();
-		auto zr = twom.mul(a.z);
-		auto zrzero = zr.propagateAndZeroCheck();
+		// ZR = 2*D*Z
+		auto twod = d.muln!2();
+		auto zr = twod.mul(a.z);
+		auto zrzero = zr.zeroCheck();
 		
-		auto q = m2.mul(t);
+		auto q = d2.mul(t);
 		auto negq = q.negate();
 		
 		// XR = 2*V
-		auto r2 = r.square();
-		auto vhalf = r.add(negq);
-		auto v = vhalf.muln!2();
-		auto xr = v.muln!2();
+		auto n2 = n.square();
+		auto v = n2.add(negq);
+		auto vdouble = v.muln!2();
+		auto xr = v.muln!4();
 		
 		// And we avoid negating too much by doing
-		// YR = -4*(R*(V - Q) + YM)
-		auto tmp = r.mul(v.add(negq));
+		// YR = -4*(N*(V - Q) + YM)
+		auto tmp = n.mul(vdouble.add(negq));
 		auto negyrquarter = tmp.add(ym);
 		auto yrquarter = negyrquarter.negate();
 		auto yr = yrquarter.muln!4();
@@ -322,6 +369,8 @@ private:
 	
 	static doubleImpl(JacobianPoint p) {
 		/**
+		 * Cost: 3M, 4S
+		 *
 		 * Quoting from libsecp256k1:
 		 * For secp256k1, 2Q is infinity if and only if Q is infinity.
 		 * This is because if 2Q = infinity, Q must equal -Q, or that
@@ -364,18 +413,371 @@ private:
 		
 		auto y2 = p.y.square();
 		auto u = y2.muln!2();
-		auto negv = u.mul(p.x);
-		auto v = negv.negate();
-		
-		auto xr = t2.add(negv.muln!4());
+		auto negu = u.negate();
+		auto v = negu.mul(p.x);
+		auto xr = t2.add(v.muln!4());
 		
 		auto u2 = u.square();
 		auto twou2 = u2.muln!2();
-		auto negsixv = negv.muln!6();
-		auto tmp = t.mul(negsixv.add(t2));
+		auto sixv = v.muln!6();
+		auto tmp = t.mul(sixv.add(t2));
 		auto negyr = tmp.add(twou2);
 		auto yr = negyr.negate();
 		
 		return JacobianPoint(xr, yr, zr, p.infinity);
 	}
+}
+
+void main() {
+	import crypto.field;
+	static testConstruct(ComputeElement x, ComputeElement y) {
+		auto p = CartesianPoint(x, y, false);
+		auto a = CartesianPoint(x, false);
+		assert(a.opEquals(p));
+		
+		auto b = CartesianPoint(x, true);
+		assert(b.opEquals(p.negate()));
+	}
+	
+	static getZs() {
+		ComputeElement[24] zs;
+		
+		auto one = ComputeElement(1);
+		auto oneinv = one.inverse();
+		auto negone = one.negate();
+		auto negoneinv = oneinv.negate();
+		
+		zs[0] = one;
+		zs[1] = oneinv;
+		zs[2] = negone;
+		zs[3] = negoneinv;
+		
+		auto two = ComputeElement(2);
+		auto twoinv = two.inverse();
+		auto negtwo = two.negate();
+		auto negtwoinv = twoinv.negate();
+		
+		zs[4] = two;
+		zs[5] = twoinv;
+		zs[6] = negtwo;
+		zs[7] = negtwoinv;
+		
+		auto sqrt2 = two.sqrt();
+		auto sqrt2inv = sqrt2.inverse();
+		auto negsqrt2 = sqrt2.negate();
+		auto negsqrt2inv = sqrt2inv.negate();
+		
+		zs[8] = sqrt2;
+		zs[9] = sqrt2inv;
+		zs[10] = negsqrt2;
+		zs[11] = negsqrt2inv;
+		
+		auto beta = ComputeElement(Beta);
+		auto betainv = beta.inverse();
+		auto negbeta = beta.negate();
+		auto negbetainv = betainv.negate();
+		
+		zs[12] = beta;
+		zs[13] = betainv;
+		zs[14] = negbeta;
+		zs[15] = negbetainv;
+
+		auto beta2 = beta.square();
+		auto beta2inv = betainv.square();
+		auto negbeta2 = beta2.negate();
+		auto negbeta2inv = beta2inv.negate();
+		
+		zs[16] = beta2;
+		zs[17] = beta2inv;
+		zs[18] = negbeta2;
+		zs[19] = negbeta2inv;
+		
+		auto sqrtbeta = beta.sqrt();
+		auto sqrtbetainv = sqrtbeta.inverse();
+		auto negsqrtbeta = sqrtbeta.negate();
+		auto negsqrtbetainv = sqrtbetainv.negate();
+		
+		zs[20] = sqrtbeta;
+		zs[21] = sqrtbetainv;
+		zs[22] = negsqrtbeta;
+		zs[23] = negsqrtbetainv;
+		
+		return zs;
+	}
+	
+	static testCAddRound(CartesianPoint a, CartesianPoint b, CartesianPoint r) {
+		// FIXME: sqrt can't run at compile time.
+		// enum Zs = getZs();
+		auto testZs = getZs();
+		
+		foreach (z; testZs) {
+			auto z2 = z.square();
+			auto jx = z2.mul(a.x);
+			
+			auto z3 = z2.mul(z);
+			auto jy = z3.mul(a.y);
+			
+			auto ja = JacobianPoint(jx, jy, z, a.infinity);
+			auto s = ja.add(b);
+			assert(s.opEquals(r), "ja + b = r");
+		}
+	}
+	
+	static testCAdd(CartesianPoint a, CartesianPoint b, CartesianPoint r) {
+		testCAddRound(a, b, r);
+		testCAddRound(b, a, r);
+		
+		// Make sure we test the infinity cases.
+		if (!a.infinity) {
+			auto ainf = CartesianPoint(a.x, a.y, true);
+			testCAddRound(ainf, b, b);
+			testCAddRound(ainf, r, r);
+		}
+		
+		if (!b.infinity) {
+			auto binf = CartesianPoint(b.x, b.y, true);
+			testCAddRound(binf, a, a);
+			testCAddRound(binf, r, r);
+		}
+	}
+	
+	static testCDoubleRound(CartesianPoint p, CartesianPoint r) {
+		auto dbl = p.pdouble();
+		assert(dbl.opEquals(r), "2P = E");
+		
+		// 2P = P + P
+		testCAdd(p, p, r);
+		
+		// FIXME: sqrt can't run at compile time.
+		// enum Zs = getZs();
+		auto testZs = getZs();
+		
+		foreach (z; testZs) {
+			auto z2 = z.square();
+			auto jx = z2.mul(p.x);
+			
+			auto z3 = z2.mul(z);
+			auto jy = z3.mul(p.y);
+			
+			auto jp = JacobianPoint(jx, jy, z, p.infinity);
+			auto jdbl = jp.pdouble();
+			assert(jdbl.opEquals(r), "2P = E");
+		}
+	}
+	
+	static testCDouble(CartesianPoint p, CartesianPoint r) {
+		testCDoubleRound(p, r);
+		
+		// Same hold for negated points.
+		auto negp = p.negate();
+		auto negr = r.negate();
+		
+		testCDoubleRound(negp, negr);
+		
+		// A point plus its negation gives the point at infinity.
+		testCAdd(p, negp, CartesianPoint(p.x, p.y, true));
+		testCAdd(r, negr, CartesianPoint(p.x, p.y, true));
+	}
+	
+	// A few constants.
+	auto zero = ComputeElement(0);
+	auto one = ComputeElement(1);
+	auto negone = one.negate();
+	auto two = ComputeElement(2);
+	auto negtwo = two.negate();
+	auto sqrt2 = two.sqrt();
+	
+	// Point decompression.
+	auto yone = ComputeElement(Element(
+		0x4218f20ae6c646b3,
+		0x63db68605822fb14,
+		0x264ca8d2587fdd6f,
+		0xbc750d587e76a7ee,
+	));
+	
+	testConstruct(one, yone);
+	
+	auto ytwo = ComputeElement(Element(
+		0x66fbe727b2ba09e0,
+		0x9f5a98d70a5efce8,
+		0x424c5fa425bbda1c,
+		0x511f860657b8535e,
+	));
+	
+	testConstruct(two, ytwo);
+	
+	auto ysqrt2 = ComputeElement(Element(
+		0xa0baf24408e75b09,
+		0xa7d28507c6ace8f4,
+		0xcfc8047e5baf5a35,
+		0xa534138a52934fa6,
+	));
+	
+	testConstruct(sqrt2, ysqrt2);
+	
+	// Various point addition and doubling.
+	auto inf = CartesianPoint(ysqrt2, ytwo, true);
+	testCDouble(inf, inf);
+	
+	auto pone = CartesianPoint(one, yone, false);
+	testCDouble(pone, CartesianPoint(
+		ComputeElement(Element(
+			0xc7ffffffffffffff,
+			0xffffffffffffffff,
+			0xffffffffffffffff,
+			0xffffffff37fffd03,
+		)),
+		ComputeElement(Element(
+			0x4298c557a7ddcc57,
+			0x0e8bf054c4cad9e9,
+			0x9f396b3ce19d50f1,
+			0xb91c9df4bb00d333,
+		)),
+		false,
+	));
+	
+	auto ptwo = CartesianPoint(two, ytwo, false);
+	testCDouble(ptwo, CartesianPoint(
+		ComputeElement(Element(
+			0x3333333333333333,
+			0x3333333333333333,
+			0x3333333333333333,
+			0x33333332ffffff3b,
+		)),
+		ComputeElement(Element(
+			0xc6e9b7a0d3c27f39,
+			0xdfb73902753408e1,
+			0x12ee6785aa33ef54,
+			0x23b1b5d93b13a783,
+		)),
+		false,
+	));
+	
+	auto psqrt2 = CartesianPoint(sqrt2, ysqrt2, false);
+	testCDouble(psqrt2, CartesianPoint(
+		ComputeElement(Element(
+			0x966af1cd3dfb77d4,
+			0x0f96c5650b2682e1,
+			0x2ef3aeff7b1923e8,
+			0x206b0273f562cbde,
+		)),
+		ComputeElement(Element(
+			0x51f7b9a5604af9eb,
+			0x336ca16f89987130,
+			0x63757df7dbb743b8,
+			0xf548c5f419e64adc,
+		)),
+		false,
+	));
+	
+	// Point addition.
+	testCAdd(inf, psqrt2, psqrt2);
+	testCAdd(inf, inf, inf);
+	
+	testCAdd(pone, ptwo, CartesianPoint(
+		ComputeElement(Element(
+			0x0dc5d279a3db3663,
+			0x3618466426f8046c,
+			0x14293331ef943334,
+			0xff7d5306cea19499,
+		)),
+		ComputeElement(Element(
+			0x503cc79dd5bde7ec,
+			0xefc0acaa1b928006,
+			0x1dee93ff6f4ab314,
+			0x3ea32db7b80c0f24,
+		)),
+		false,
+	));
+	
+	testCAdd(pone, psqrt2, CartesianPoint(
+		ComputeElement(Element(
+			0x842c4fb83c941d42,
+			0xe735f08112891fb7,
+			0xbdbae48eb6ac28c0,
+			0x069df23c7093cb70,
+		)),
+		ComputeElement(Element(
+			0x17ecfb8861f453fe,
+			0xcde1019c42b45ff0,
+			0xff6aa45d5c984676,
+			0x4bc5c765597bdc90,
+		)),
+		false,
+	));
+	
+	testCAdd(ptwo, psqrt2, CartesianPoint(
+		ComputeElement(Element(
+			0xb8fd0794327e0a4d,
+			0x1d64ccace67b4c40,
+			0xe3a3aca298704afb,
+			0x832f072f083614cf,
+		)),
+		ComputeElement(Element(
+			0x80eaf02401164532,
+			0x213892551c3f743a,
+			0x0e4d2f5d7f18dc7a,
+			0xfc1c8912a4087d3b,
+		)),
+		false,
+	));
+	
+	/**
+	 * These point have different x but y that are opposite of
+	 * each others. This is a special in out point addition
+	 * routine and we want to make sure it is handled properly.
+	 */
+	auto ax = ComputeElement(Element(
+		0x8d24cd950a355af1,
+		0x3c54350544238d30,
+		0x0643d79f05a59614,
+		0x2f8ec030d58977cb,
+	));
+	
+	auto ay = ComputeElement(Element(
+		0xffe1cc85c7f6c232,
+		0x93f0c792f4ed6c57,
+		0xb28d37862897e6db,
+		0xbb192d0b6e6feab2,
+	));
+	
+	auto bx = ComputeElement(Element(
+		0xc7b742061f788cd9,
+		0xabd0937d164a0d86,
+		0x95f6ff75f19a4ce9,
+		0xd013bd7bbf92d2a7,
+	));
+	
+	auto by = ComputeElement(Element(
+		0x001e337a38093dcd,
+		0x6c0f386d0b1293a8,
+		0x4d72c879d7681924,
+		0x44e6d2f39190117d,
+	));
+	
+	assert(ay.opEquals(by.negate()), "ay == -by");
+	
+	testConstruct(ax, ay);
+	testConstruct(bx, ay);
+	
+	auto a = CartesianPoint(ax, ay, false);
+	auto b = CartesianPoint(bx, by, false);
+	
+	testCAdd(a, b, CartesianPoint(
+		ComputeElement(Element(
+			0x671a63c03efdad4c,
+			0x389a779824356027,
+			0xb3d69010278625c3,
+			0x5c86d390184a8f7a,
+		)),
+		ComputeElement(Element(
+			0xa09bf63dd31fe0d4,
+			0xaee02c8adaf8e2f7,
+			0x259ae7fe8f16a350,
+			0x70f276c241270071,
+		)),
+		false,
+	));
+	
+	printf("OK\n".ptr);
 }
