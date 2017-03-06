@@ -276,6 +276,10 @@ public:
 		return inverseImpl(this);
 	}
 	
+	auto sqrt() const {
+		return sqrtImpl(this);
+	}
+	
 	// FIXME: For some reason, auto is detected as const by SDC.
 	// This needs to be figured out.
 	ComputeElement muln(uint N)() const {
@@ -504,6 +508,72 @@ private:
 		
 		return r;
 	}
+	
+	static sqrtImpl(ComputeElement e) {
+		/**
+		 * Because p = 3 mod 4, we know Skank's algorithm simplify
+		 * to sqrt(e) = e ^ ((p + 1)/4), if it exists at all.
+		 *
+		 * Because (p + 1)/4 is even, the end result will be the same
+		 * for e and -e . To guard against this, we verify at teh end
+		 * that r ^ 2 == e so we indeed have a valid square root.
+		 */
+		
+		// Compute various (2 ^ n - 1) powers of e.
+		auto e02 = e.mul(e.square());
+		auto e03 = e.mul(e02.square());
+		
+		auto e06 = e03.squaren!3();
+		e06 = e06.mul(e03);
+		
+		auto e09 = e06.squaren!3();
+		e09 = e09.mul(e03);
+		
+		auto e11 = e09.squaren!2();
+		e11 = e11.mul(e02);
+		
+		auto e22 = e11.squaren!11();
+		e22 = e22.mul(e11);
+		
+		auto e44 = e22.squaren!22();
+		e44 = e44.mul(e22);
+		
+		auto e88 = e44.squaren!44();
+		e88 = e88.mul(e44);
+		
+		auto e176 = e88.squaren!88();
+		e176 = e176.mul(e88);
+		
+		auto e220 = e176.squaren!44();
+		e220 = e220.mul(e44);
+		
+		auto e223 = e220.squaren!3();
+		e223 = e223.mul(e03);
+		
+		// The 223 heading ones of the base.
+		// 0x7FFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFE
+		// 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFBFFFFF0C
+		auto r = e223;
+		
+		// Now we got 0xBFFFFF0C with the first 1 taken care of.
+		r = r.squaren!23();
+		r = r.mul(e22);
+		
+		// 000011
+		r = r.squaren!6();
+		r = r.mul(e02);
+		
+		// 00
+		r = r.squaren!2();
+		
+		// Not all number have a square root. We check if we actually computed
+		// the square root by squaring it and chcking against e. If not, throw.
+		if (!e.opEquals(r.square())) {
+			throw new Exception(/* "e has no square root" */);
+		}
+		
+		return r;
+	}
 }
 
 void main() {
@@ -606,20 +676,44 @@ void main() {
 		0x9982b148178f639f,
 	));
 	
-	auto n2 = Element(
+	auto en2 = Element(
 		0x251763d423a01613,
 		0x32ec3fd6bb58cb93,
 		0x7dae8f98ab71d214,
 		0xdb3a36e3d3625992,
 	);
 	
-	auto cn2 = ComputeElement(n2);
+	auto n2 = ComputeElement(en2);
+	
+	auto negn = n.negate();
+	testAdd(n, negn, zero);
+	testNeg(n, negn);
+	testMul(n, negone, negn);
 	
 	auto nsqr = n.square();
-	assert(nsqr.opEquals(cn2), "n^2 == n2");
+	assert(nsqr.opEquals(n2), "n^2 == n2");
+	
+	auto sqrt2 = ComputeElement(Element(
+		0x210c790573632359,
+		0xb1edb4302c117d8a,
+		0x132654692c3feeb7,
+		0xde3a86ac3f3b53f7,
+	));
+	
+	assert(two.opEquals(sqrt2.square()), "sqrt(2)^2 == 2");
+	
+	auto qdrt2 = ComputeElement(Element(
+		0xf7a0537b4e1a702a,
+		0x365917f8acd566b4,
+		0x910693c40349c795,
+		0x63296cb3c055f559,
+	));
+	
+	assert(sqrt2.opEquals(qdrt2.square()), "qdrt(2)^2 == sqrt(2)");
+	assert(two.opEquals(qdrt2.squaren!2()), "qdrt(2)^2^2 == 2");
 	
 	// Normalization.
-	assert(n2.opEquals(nsqr.normalize()));
+	assert(en2.opEquals(nsqr.normalize()));
 	
 	// Inversion.
 	testMul(one, one.inverse(), one);
@@ -628,5 +722,22 @@ void main() {
 	testMul(negtwo, negtwo.inverse(), one);
 	testMul(four, four.inverse(), one);
 	testMul(n, n.inverse(), one);
-	testMul(cn2, cn2.inverse(), one);
+	testMul(negn, negn.inverse(), one);
+	testMul(n2, n2.inverse(), one);
+	
+	// Square root.
+	assert(zero.opEquals(zero.sqrt()), "sqrt(0) == 0");
+	assert(one.opEquals(one.sqrt()), "sqrt(1) == 1");
+	assert(two.opEquals(four.sqrt()), "sqrt(4) == 2");
+	assert(sqrt2.opEquals(two.sqrt()), "sqrt(2) == sqrt2");
+	assert(qdrt2.opEquals(sqrt2.sqrt()), "sqrt(sqrt2) == qdrt2");
+	
+	// n ^ 2 == -n ^ 2, so we also get -n in some cases.
+	assert(negn.opEquals(n2.sqrt()), "sqrt(n^2) == -n");
+	
+	// Some elements do not have a square root.
+	try {
+		n.sqrt();
+		assert(0, "n has no square root");
+	} catch (Exception e) { }
 }
