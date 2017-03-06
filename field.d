@@ -176,6 +176,22 @@ public:
 		return Element(r);
 	}
 	
+	auto isOdd() const {
+		auto e = propagateCarries();
+		
+		// Check if there is an overflow.
+		auto msbAllOnes = e.parts[4] == MsbMask;
+		msbAllOnes &= (e.parts[1] & e.parts[2] & e.parts[3]) == Mask;
+		auto tooGreat = msbAllOnes & (e.parts[0] >= 0xFFFFFFFEFFFFFC2F);
+		auto overflow = (e.parts[4] >> 48) | tooGreat;
+		
+		return (e.parts[0] ^ overflow) & 0x01;
+	}
+	
+	auto isEven() const {
+		return !isOdd();
+	}
+	
 	// auto opBinary(string op : "+")(Scalar b) const {
 	auto add(ComputeElement b) const {
 		auto a = this;
@@ -599,6 +615,7 @@ void main() {
 	testMul(zero, zero, zero);
 	
 	assert(zero.opEquals(zero.square()), "0^2 == 0");
+	assert(zero.isEven(), "0 is even");
 	
 	auto one = ComputeElement(1);
 	testAdd(zero, one, one);
@@ -606,6 +623,7 @@ void main() {
 	testMul(one, one, one);
 	
 	assert(one.opEquals(one.square()), "1^2 == 1");
+	assert(one.isOdd(), "1 is odd");
 	
 	auto two = ComputeElement(2);
 	testAdd(one, one, two);
@@ -615,6 +633,8 @@ void main() {
 	
 	auto four = ComputeElement(4);
 	assert(four.opEquals(two.square()), "2^2 == 4");
+	assert(two.isEven(), "2 is even");
+	assert(four.isEven(), "4 is even");
 	
 	auto negone = ComputeElement(Element(
 		0xFFFFFFFFFFFFFFFF,
@@ -629,6 +649,7 @@ void main() {
 	testMul(negone, negone, one);
 	
 	assert(one.opEquals(negone.square()), "(-1)^2 == 1");
+	assert(negone.isEven(), "-1 is even");
 	
 	auto negtwo = ComputeElement(Element(
 		0xFFFFFFFFFFFFFFFF,
@@ -642,6 +663,7 @@ void main() {
 	testNeg(two, negtwo);
 	testMul(negone, two, negtwo);
 	testMul(negone, negtwo, two);
+	assert(negtwo.isOdd(), "-2 is odd");
 	
 	// Test high carry count.
 	static getNegOneWithNCarries(uint cc) {
@@ -659,6 +681,8 @@ void main() {
 		r.carryCount = cc;
 		
 		assert(negone.opEquals(r));
+		assert(r.isEven(), "-1 is even");
+		
 		return r;
 	}
 	
@@ -693,6 +717,10 @@ void main() {
 	auto nsqr = n.square();
 	assert(nsqr.opEquals(n2), "n^2 == n2");
 	
+	assert(n.isOdd(), "n is odd");
+	assert(negn.isEven(), "-n is even");
+	assert(n2.isEven(), "n^2 is even");
+	
 	auto sqrt2 = ComputeElement(Element(
 		0x210c790573632359,
 		0xb1edb4302c117d8a,
@@ -711,6 +739,9 @@ void main() {
 	
 	assert(sqrt2.opEquals(qdrt2.square()), "qdrt(2)^2 == sqrt(2)");
 	assert(two.opEquals(qdrt2.squaren!2()), "qdrt(2)^2^2 == 2");
+	
+	assert(sqrt2.isOdd(), "sqrt2 is odd");
+	assert(qdrt2.isOdd(), "qdrt2 is odd");
 	
 	// Normalization.
 	assert(en2.opEquals(nsqr.normalize()));
