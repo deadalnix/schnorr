@@ -740,4 +740,6 @@ void main() {
 		n.sqrt();
 		assert(0, "n has no square root");
 	} catch (Exception e) { }
+	
+	printf("OK\n".ptr);
 }

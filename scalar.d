@@ -696,4 +696,6 @@ void main() {
 	testMul(four, four.inverse(), one);
 	testMul(n, n.inverse(), one);
 	testMul(n2, n2.inverse(), one);
+	
+	printf("OK\n".ptr);
 }
