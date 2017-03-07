@@ -63,8 +63,8 @@ public:
 			}
 			
 			// Multiply gbase by 16 to get ready for the next round.
-			auto jgbase = JacobianPoint(gbase);
-			for (uint j = 0; j < 4; j++) {
+			auto jgbase = gbase.pdouble();
+			for (uint j = 0; j < 3; j++) {
 				jgbase = jgbase.pdouble();
 			}
 			
@@ -105,17 +105,28 @@ public:
 		
 		// We are now in a state where we can multiply, so we can compute
 		// a blinding factor and update the lookup tables with it.
-		// FIXME: Generate blinding factor from seed.
-		auto bf = Scalar(12345);
-		auto bg = gen(bf.negate());
+		JacobianPoint[64] jbgs;
+		auto bf = Scalar(0);
+		foreach (i; 0 .. 64) {
+			// FIXME: Use the seed instead fo doing random crap.
+			auto bf19 = bf.add(Scalar(19));
+			auto rbf = bf19.inverse();
+			rbf = rbf.add(bf19.square());
+			
+			// Accumulate each round's blinding factor.
+			bf = bf.add(rbf);
+			jbgs[i] = gen(rbf.negate());
+		}
 		
 		// Update Generator state to include the blinding factor.
 		blindingFactor = bf;
 		
-		foreach (j; 0 .. 16) {
-			auto p = jlookup[63][j].add(bg);
-			// FIXME: Mass normalize.
-			lookup[63][j] = p.normalize();
+		foreach (i; 0 .. 64) {
+			foreach (j; 0 .. 16) {
+				auto p = CartesianPoint(lookup[i][j]);
+				auto jbg = jbgs[i].add(p);
+				lookup[i][j] = jbg.normalize();
+			}
 		}
 	}
 	
@@ -126,26 +137,99 @@ public:
 		
 		import crypto.field;
 		auto zero = ComputeElement(0);
-		auto r = JacobianPoint(zero, zero, zero, false);
 		
-		foreach (i; 0 .. 64) {
-			auto parts = k.getParts();
-			auto bits = (parts[i >> 4] >> (i & 0x0f)) & 0x0f;
-			
-			/**
-			 * We want to avoid side channels attacks. One of the most common
-			 * side channel is memory access, as it impact the cache. To avoid
-			 * leaking the secret, we make sure no memory access depends on the
-			 * secret. This is achieved by accessing all elements in the table.
-			 */
-			auto p = lookup[i][0];
-			foreach (j; 1 .. 16) {
-				p = Point.select(i == bits, p, lookup[i][j]);
-			}
-			
-			r = r.add(CartesianPoint(p));
+		auto parts = k.getParts();
+		
+		// Round 1: get a cartesian point.
+		auto c = select(0, parts[0] & 0x0f);
+		
+		// Round 2: get a jacobian point.
+		auto p = select(1, (parts[0] >> 4) & 0x0f);
+		auto r = c.add(p);
+		
+		// Round 3 onward, jacobian/cartesian addition.
+		foreach (i; 2 .. 64) {
+			auto bits = (parts[i >> 4] >> ((4*i) & 0x3f)) & 0x0f;
+			r = r.add(select(i, bits));
 		}
 		
-		return CartesianPoint(r);
+		return r;
 	}
+	
+private:
+	auto select(uint i, long bits) {
+		/**
+		 * We want to avoid side channels attacks. One of the most common
+		 * side channel is memory access, as it impact the cache. To avoid
+		 * leaking the secret, we make sure no memory access depends on the
+		 * secret. This is achieved by accessing all elements in the table.
+		 */
+		auto p = lookup[i][0];
+		foreach (j; 1 .. 16) {
+			p = Point.select(j == bits, lookup[i][j], p);
+		}
+		
+		return CartesianPoint(p);
+	}
+}
+
+void main() {
+	ubyte[32] seed;
+	
+	import crypto.point;
+	auto g = CartesianPoint(G);
+	auto gmul = Generator(G, seed);
+	
+	import crypto.scalar;
+	auto zero = Scalar(0);
+	auto zerog = gmul.gen(zero);
+	auto inf = CartesianPoint(g.add(g.negate()));
+	assert(zerog.opEquals(inf), "0*G == O");
+	
+	auto one = Scalar(1);
+	auto oneg = gmul.gen(one);
+	assert(oneg.opEquals(g), "1*G == G");
+	
+	auto negone = one.negate();
+	auto negoneg = gmul.gen(negone);
+	assert(negoneg.opEquals(g.negate()), "-1*G == -G");
+	
+	auto two = Scalar(2);
+	auto twog = gmul.gen(two);
+	auto dblg = CartesianPoint(g.pdouble());
+	assert(twog.opEquals(dblg), "2*G == G + G");
+	
+	auto negtwo = two.negate();
+	auto negtwog = gmul.gen(negtwo);
+	assert(negtwog.opEquals(dblg.negate()), "-2*G == - (G + G)");
+	
+	import crypto.field;
+	auto beta = ComputeElement(Beta);
+	auto beta2 = beta.square();
+	
+	// If P = (x, y), Lambda*P = (Beta*x, y)
+	auto lambda = Lambda;
+	auto lambdag = gmul.gen(lambda);
+	auto betaxg = CartesianPoint(g.x.mul(beta), g.y, g.infinity);
+	assert(lambdag.opEquals(betaxg), "Lambda*G == (Beta*G.x, G.y)");
+	
+	auto neglambda = lambda.negate();
+	auto neglambdag = gmul.gen(neglambda);
+	auto negbetaxg = CartesianPoint(g.x.mul(beta), g.y.negate(), g.infinity);
+	assert(neglambdag.opEquals(negbetaxg), "-Lambda*G == (Beta*G.x, -G.y)");
+	
+	auto lambda2 = lambda.square();
+	auto lambda2g = gmul.gen(lambda2);
+	auto beta2xg = CartesianPoint(g.x.mul(beta2), g.y, g.infinity);
+	assert(lambda2g.opEquals(beta2xg), "Lambda^2*G == (Beta^2*G.x, G.y)");
+	
+	auto neglambda2 = lambda2.negate();
+	auto neglambda2g = gmul.gen(neglambda2);
+	auto negbeta2xg = CartesianPoint(g.x.mul(beta2), g.y.negate(), g.infinity);
+	assert(
+		neglambda2g.opEquals(negbeta2xg),
+		"-Lambda^2*G == (Beta^2*G.x, -G.y)",
+	);
+	
+	printf("OK\n".ptr);
 }
