@@ -94,44 +94,9 @@ public:
 		this(Element(0, 0, 0, s));
 	}
 	
-	auto propagateCarries() const {
-		// We start by reducing all the MSB bits in part[4]
-		// so that we will at most have one carry to reduce.
-		ulong[5] r = parts;
-		ulong acc = (r[4] >> 48) * Complement;
-		
-		// Clear the carries in part[4].
-		r[4] &= MsbMask;
-		
-		// Propagate.
-		foreach (i; 0 .. 5) {
-			acc += r[i];
-			r[i] = acc & Mask;
-			acc >>= 52;
-		}
-		
-		return ComputeElement(r, 1);
-	}
-	
-	auto propagateAndZeroCheck() {
-		this = propagateCarries();
-		
-		// Now we check for 0 or p, which would normalize to 0.
-		ulong z0 = parts[0];
-		ulong z1 = parts[0] ^ (Complement - 1);
-		
-		z0 |= parts[1];
-		z1 &= parts[1];
-		z0 |= parts[2];
-		z1 &= parts[2];
-		z0 |= parts[3];
-		z1 &= parts[3];
-		
-		z0 |= parts[4];
-		z1 &= parts[4] ^ 0xF000000000000;
-		
-		// This doesn't result in a branch.
-		return (z0 == 0) || (z1 == 0xFFFFFFFFFFFFF);
+	auto zeroCheck() {
+		auto r = NormalizationResult(this);
+		return r.zeroCheck();
 	}
 	
 	static select(bool cond, ComputeElement a, ComputeElement b) {
@@ -149,47 +114,18 @@ public:
 	}
 	
 	auto normalize() const {
-		auto e = propagateCarries();
-		
-		// Check if there is an overflow.
-		auto msbAllOnes = e.parts[4] == MsbMask;
-		msbAllOnes &= (e.parts[1] & e.parts[2] & e.parts[3]) == Mask;
-		auto tooGreat = msbAllOnes & (e.parts[0] >= 0xFFFFFFFEFFFFFC2F);
-		auto overflow = (e.parts[4] >> 48) | tooGreat;
-		
-		ulong[4] r;
-		ucent acc = -ulong(overflow) & Complement;
-		acc += parts[0];
-		acc += (cast(ucent) e.parts[1]) << 52;
-		r[0] = cast(ulong) acc;
-		acc >>= 64;
-		acc += (cast(ucent) e.parts[2]) << 40;
-		r[1] = cast(ulong) acc;
-		acc >>= 64;
-		acc += (cast(ucent) e.parts[3]) << 28;
-		r[2] = cast(ulong) acc;
-		acc >>= 64;
-		acc += cast(ucent) (e.parts[4] << 16);
-		r[3] = cast(ulong) acc;
-		assert(acc >> 64 == 0, "Residual carry detected");
-		
-		return Element(r);
-	}
-	
-	auto isOdd() const {
-		auto e = propagateCarries();
-		
-		// Check if there is an overflow.
-		auto msbAllOnes = e.parts[4] == MsbMask;
-		msbAllOnes &= (e.parts[1] & e.parts[2] & e.parts[3]) == Mask;
-		auto tooGreat = msbAllOnes & (e.parts[0] >= 0xFFFFFFFEFFFFFC2F);
-		auto overflow = (e.parts[4] >> 48) | tooGreat;
-		
-		return (e.parts[0] ^ overflow) & 0x01;
+		auto r = NormalizationResult(this);
+		return r.reduce();
 	}
 	
 	auto isEven() const {
-		return !isOdd();
+		auto r = NormalizationResult(this);
+		return r.isEven();
+	}
+	
+	auto isOdd() const {
+		auto r = NormalizationResult(this);
+		return r.isOdd();
 	}
 	
 	// auto opBinary(string op : "+")(Scalar b) const {
@@ -211,14 +147,15 @@ public:
 		// We can branch on carryCount because it is only dependent on
 		// control flow. If other part of the code do not branch based
 		// on values, then carryCount do not depend on value.
-		if (cc >= 2048) {
-			// We have 12bits to accumulate carries.
-			// It means we can't add numbers which accumulated
-			// 2048 carries or more.
-			r = r.propagateCarries();
+		if (cc < 2048) {
+			return r;
 		}
 		
-		return r;
+		// We have 12bits to accumulate carries.
+		// It means we can't add numbers which accumulated
+		// 2048 carries or more.
+		auto nr = NormalizationResult(r);
+		return nr.raw;
 	}
 	
 	// auto opUnary(string op : "-")() const {
@@ -248,14 +185,16 @@ public:
 		// control flow. If other part of the code do not branch based
 		// on values, then carryCount do not depend on value.
 		if (a.carryCount >= 1024) {
-			a = a.propagateCarries();
+			auto na = NormalizationResult(a);
+			a = na.raw;
 		}
 		
 		// We can branch on carryCount because it is only dependent on
 		// control flow. If other part of the code do not branch based
 		// on values, then carryCount do not depend on value.
 		if (b.carryCount >= 1024) {
-			b = b.propagateCarries();
+			auto nb = NormalizationResult(b);
+			b = nb.raw;
 		}
 		
 		return ComputeElement(mulImpl(a, b), 1);
@@ -268,7 +207,8 @@ public:
 		// control flow. If other part of the code do not branch based
 		// on values, then carryCount do not depend on value.
 		if (e.carryCount >= 1024) {
-			e = e.propagateCarries();
+			auto ne = NormalizationResult(e);
+			e = ne.raw;
 		}
 		
 		return ComputeElement(mulImpl(e, e), 1);
@@ -285,7 +225,7 @@ public:
 	
 	auto opEquals(ComputeElement b) const {
 		auto diff = sub(b);
-		return diff.propagateAndZeroCheck();
+		return diff.zeroCheck();
 	}
 	
 	auto inverse() const {
@@ -307,7 +247,8 @@ public:
 		// control flow. If other part of the code do not branch based
 		// on values, then carryCount do not depend on value.
 		if ((r.carryCount + 1) * N >= 2048) {
-			r = r.propagateCarries();
+			auto nr = NormalizationResult(r);
+			r = nr.raw;
 		}
 		
 		foreach (i; 0 .. 5) {
@@ -334,6 +275,93 @@ private:
 			parts[0],
 			carryCount,
 		);
+	}
+	
+	struct NormalizationResult {
+		ulong[5] parts;
+		
+		this(ComputeElement e) {
+			// We start by reducing all the MSB bits in part[4]
+			// so that we will at most have one carry to reduce.
+			parts = e.parts;
+			ulong acc = (parts[4] >> 48) * Complement;
+			
+			// Clear the carries in part[4].
+			parts[4] &= MsbMask;
+			
+			// Propagate.
+			foreach (i; 0 .. 5) {
+				acc += parts[i];
+				parts[i] = acc & Mask;
+				acc >>= 52;
+			}
+			
+			assert(acc == 0, "Residual carry detected");
+		}
+		
+		@property raw() const {
+			return ComputeElement(parts, 1);
+		}
+		
+		@property overflow() const {
+			// Check if there is an overflow.
+			auto msbAllOnes = parts[4] == MsbMask;
+			msbAllOnes &= (parts[1] & parts[2] & parts[3]) == Mask;
+			auto tooGreat = msbAllOnes & (parts[0] >= 0xFFFFEFFFFFC2F);
+			auto o = (parts[4] >> 48) | tooGreat;
+			
+			// XXX: out contract
+			assert(o < 2, "Residual carry detected");
+			return o;
+		}
+		
+		auto reduce() const {
+			ulong[4] r;
+			ucent acc = -ulong(overflow) & Complement;
+			acc += parts[0];
+			acc += (cast(ucent) parts[1]) << 52;
+			r[0] = cast(ulong) acc;
+			acc >>= 64;
+			acc += (cast(ucent) parts[2]) << 40;
+			r[1] = cast(ulong) acc;
+			acc >>= 64;
+			acc += (cast(ucent) parts[3]) << 28;
+			r[2] = cast(ulong) acc;
+			acc >>= 64;
+			acc += cast(ucent) (parts[4] << 16);
+			r[3] = cast(ulong) acc;
+			
+			assert((acc >> 64) == overflow, "Inconsistent carry detected");
+			
+			return Element(r);
+		}
+		
+		auto isEven() const {
+			return ((parts[0] ^ overflow) & 0x01) == 0;
+		}
+		
+		auto isOdd() const {
+			return ((parts[0] ^ overflow) & 0x01) != 0;
+		}
+		
+		auto zeroCheck() const {
+			// Now we check for 0 or p, which would normalize to 0.
+			ulong z0 = parts[0];
+			ulong z1 = parts[0] ^ (Complement - 1);
+			
+			z0 |= parts[1];
+			z1 &= parts[1];
+			z0 |= parts[2];
+			z1 &= parts[2];
+			z0 |= parts[3];
+			z1 &= parts[3];
+			
+			z0 |= parts[4];
+			z1 &= parts[4] ^ 0xF000000000000;
+			
+			// This doesn't result in a branch.
+			return (z0 == 0) || (z1 == 0xFFFFFFFFFFFFF);
+		}
 	}
 	
 	static mulImpl(ComputeElement a, ComputeElement b) {
@@ -665,6 +693,23 @@ void main() {
 	testMul(negone, negtwo, two);
 	assert(negtwo.isOdd(), "-2 is odd");
 	
+	ulong[5] pparts;
+	pparts[0] = 0xFFFFEFFFFFC2F;
+	pparts[1] = 0xFFFFFFFFFFFFF;
+	pparts[2] = 0xFFFFFFFFFFFFF;
+	pparts[3] = 0xFFFFFFFFFFFFF;
+	pparts[4] = 0x0FFFFFFFFFFFF;
+	auto p = ComputeElement(pparts, 1);
+	
+	testAdd(p, zero, zero);
+	testAdd(p, p, zero);
+	testAdd(p, one, one);
+	testAdd(p, negone, negone);
+	testNeg(p, zero);
+	testMul(p, p, zero);
+	testMul(p, one, zero);
+	testMul(p, negone, zero);
+	
 	// Test high carry count.
 	static getNegOneWithNCarries(uint cc) {
 		auto one = ComputeElement(1);
@@ -686,10 +731,15 @@ void main() {
 		return r;
 	}
 	
+	auto enegone = negone.normalize();
+	
 	foreach (i; 0 .. 1024) {
 		auto n = getNegOneWithNCarries(i);
 		auto m = ComputeElement.mulImpl(n, n);
 		assert(one.opEquals(ComputeElement(m, 1)));
+		
+		// Test carry propagationg via normalization
+		assert(enegone.opEquals(n.normalize()), "normalize(n) == -1");
 	}
 	
 	// Squaring.
@@ -745,6 +795,10 @@ void main() {
 	
 	// Normalization.
 	assert(en2.opEquals(nsqr.normalize()));
+	
+	auto np = p.normalize();
+	auto nzero = zero.normalize();
+	assert(np.opEquals(nzero), "P normalize to 0");
 	
 	// Inversion.
 	testMul(one, one.inverse(), one);
