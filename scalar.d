@@ -604,6 +604,16 @@ private:
 	}
 }
 
+/**
+ * Lambda is is a non 1 cube root of 1 modulo the group order.
+ */
+enum Lambda = Scalar(
+	0x5363ad4cc05c30e0,
+	0xa5261c028812645a,
+	0x122e22ea20816678,
+	0xdf02967c1b23bd72,
+);
+
 void main() {
 	static testAdd(Scalar a, Scalar b, Scalar r) {
 		assert(r.opEquals(a.add(b)), "a + b == r");
@@ -696,6 +706,16 @@ void main() {
 	testMul(four, four.inverse(), one);
 	testMul(n, n.inverse(), one);
 	testMul(n2, n2.inverse(), one);
+	
+	// Lambda
+	auto labmda = Lambda;
+	auto labmda2 = labmda.square();
+	auto labmda3 = labmda2.mul(labmda);
+	auto labmda4 = labmda2.square();
+	auto labmda6 = labmda4.mul(labmda2);
+	
+	assert(one.opEquals(labmda3), "labmda^3 == 1");
+	assert(one.opEquals(labmda6), "labmda2^3 == 1");
 	
 	printf("OK\n".ptr);
 }
