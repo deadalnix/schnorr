@@ -44,6 +44,16 @@ public:
 	}
 }
 
+/**
+ * Beta is is a non 1 cube root of 1 in Fp.
+ */
+enum Beta = Element(
+	0x7ae96a2b657c0710,
+	0x6e64479eac3434e9,
+	0x9cf0497512f58995,
+	0xc1396c28719501ee,
+);
+
 struct ComputeElement {
 private:
 	/**
@@ -825,6 +835,16 @@ void main() {
 		n.sqrt();
 		assert(0, "n has no square root");
 	} catch (Exception e) { }
+	
+	// Beta
+	auto beta = ComputeElement(Beta);
+	auto beta2 = beta.square();
+	auto beta3 = beta2.mul(beta);
+	auto beta4 = beta2.square();
+	auto beta6 = beta4.mul(beta2);
+	
+	assert(one.opEquals(beta3), "beta^3 == 1");
+	assert(one.opEquals(beta6), "beta2^3 == 1");
 	
 	printf("OK\n".ptr);
 }
