@@ -121,6 +121,16 @@ public:
 		return r.pdoublen!(N - 1)();
 	}
 	
+	static select(bool cond, CartesianPoint a, CartesianPoint b) {
+		return CartesianPoint(
+			ComputeElement.select(cond, a.x, b.x),
+			ComputeElement.select(cond, a.y, b.y),
+			// Ternary op doesn't have the right type.
+			// FIXME: The compiler is still a smart ass and uses CMOV.
+			!!(cond ? a.infinity : b.infinity),
+		);
+	}
+	
 private:
 	static doubleImpl(CartesianPoint p) {
 		/**

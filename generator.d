@@ -141,8 +141,7 @@ public:
 		auto c = select(0, parts[0] & 0x0f);
 		
 		// Round 2: get a jacobian point.
-		auto p = select(1, (parts[0] >> 4) & 0x0f);
-		auto r = c.add(p);
+		auto r = c.add(select(1, (parts[0] >> 4) & 0x0f));
 		
 		// Round 3 onward, jacobian/cartesian addition.
 		foreach (i; 2 .. 64) {
