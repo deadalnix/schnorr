@@ -134,11 +134,11 @@ private:
 		 *
 		 * U = X^2
 		 * V = Y^2
-		 * S = 2*(U + V^2 - (X + V)^2)
+		 * S = U + V^2 - (X + V)^2
 		 * M = 3*U
-		 * T = M^2 + 2*S
+		 * T = M^2 + 4*S
 		 * XR = T
-		 * YR = -(M*(T + S) + 8*V^2)
+		 * YR = -(M*(T + 2*S) + 8*V^2)
 		 * ZR = 2*Y
 		 */
 		auto u = p.x.square();
@@ -151,13 +151,12 @@ private:
 		auto v2 = v.square();
 		auto tmp0 = v2.add(u);
 		auto tmp1 = p.x.add(v);
-		auto shalf = tmp0.sub(tmp1.square());
-		auto s = shalf.muln!2();
+		auto s = tmp0.sub(tmp1.square());
 		
-		auto t = m2.add(s.muln!2());
+		auto t = m2.add(s.muln!4());
 		auto xr = t;
 		
-		auto tmp2 = m.mul(t.add(s));
+		auto tmp2 = m.mul(t.add(s.muln!2()));
 		auto negyr = tmp2.add(v2.muln!8());
 		auto yr = negyr.negate();
 		
