@@ -63,10 +63,7 @@ public:
 			}
 			
 			// Multiply gbase by 16 to get ready for the next round.
-			auto jgbase = gbase.pdouble();
-			for (uint j = 0; j < 3; j++) {
-				jgbase = jgbase.pdouble();
-			}
+			auto jgbase = gbase.pdoublen!4();
 			
 			// FIXME: Works in jacobian for gbase all the way to avoid
 			// expensive z inversion.

@@ -116,6 +116,11 @@ public:
 		return doubleImpl(this);
 	}
 	
+	auto pdoublen(uint N)() const {
+		auto r = pdouble();
+		return r.pdoublen!(N - 1)();
+	}
+	
 private:
 	static doubleImpl(CartesianPoint p) {
 		/**
@@ -216,6 +221,15 @@ public:
 	
 	auto pdouble() const {
 		return doubleImpl(this);
+	}
+	
+	auto pdoublen(uint N)() const {
+		JacobianPoint r = this;
+		for (uint i = 0; i < N; i++) {
+			r = r.pdouble();
+		}
+		
+		return r;
 	}
 	
 	auto opEquals(CartesianPoint b) const {
