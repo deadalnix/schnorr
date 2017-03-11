@@ -68,6 +68,18 @@ public:
 			auto buf = ScalarBuf(s, flipsign);
 		}
 		
+		static pack(int u, bool flipsign) {
+			/**
+			 * If u is positive, this ia noop. If it is negative, then
+			 * all bits are flipped. Because the LSB is known to be 1,
+			 * flipping the bits are the same as in the complement.
+			 *
+			 * The LSB is 0 for negative, 1 for positive, higher bits
+			 * are the absolute value and can be used as indices.
+			 */
+			return ubyte(((u ^ flipsign) ^ (u >> 31)) & 0xff);
+		}
+		
 		auto u = buf.extract();
 		foreach (i; 1 .. Steps - HasExtraBits) {
 			auto bits = buf.extract();
@@ -95,15 +107,8 @@ public:
 			 */
 			u -= ((sign & even) << N);
 			
-			/**
-			 * If u is positive, this ia noop. If it is negative, then
-			 * all bits are flipped. Because the LSB is known to be 1,
-			 * flipping the bits are the same as in the complement.
-			 *
-			 * The LSB is 0 for negative, 1 for positive, higher bits
-			 * are the absolute value and can be used as indices.
-			 */
-			lookup[i - 1] = ((u ^ flipsign) ^ (u >> 31)) & 0xff;
+			// We computed one w-NAF digit, pack it.
+			lookup[i - 1] = pack(u, flipsign);
 			
 			// Get ready for the next round.
 			u = bits;
@@ -120,12 +125,12 @@ public:
 			bits += sign;
 			u -= (sign << (N - ExtraBits));
 			
-			lookup[Steps - 2] = ((u ^ flipsign) ^ (u >> 31)) & 0xff;
+			lookup[Steps - 2] = pack(u, flipsign);
 			u = bits;
 		}
 		
 		// Last digit, already corrected.
-		lookup[Steps - 1] = ((u ^ flipsign) ^ (u >> 31)) & 0xff;
+		lookup[Steps - 1] = pack(u, flipsign);
 	}
 	
 	ubyte wNAFat(uint i) const {
