@@ -399,7 +399,7 @@ private:
 			
 			foreach (i; 0 .. 4) {
 				uacc += r[i];
-				uacc += (cast(ucent) c.parts[i]) * carries;
+				uacc += ucent(c.parts[i]) * carries;
 				r[i] = cast(ulong) uacc;
 				uacc >>= 64;
 			}

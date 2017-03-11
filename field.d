@@ -329,16 +329,16 @@ private:
 			ulong[4] r;
 			ucent acc = -ulong(overflow) & Complement;
 			acc += parts[0];
-			acc += (cast(ucent) parts[1]) << 52;
+			acc += ucent(parts[1]) << 52;
 			r[0] = cast(ulong) acc;
 			acc >>= 64;
-			acc += (cast(ucent) parts[2]) << 40;
+			acc += ucent(parts[2]) << 40;
 			r[1] = cast(ulong) acc;
 			acc >>= 64;
-			acc += (cast(ucent) parts[3]) << 28;
+			acc += ucent(parts[3]) << 28;
 			r[2] = cast(ulong) acc;
 			acc >>= 64;
-			acc += cast(ucent) (parts[4] << 16);
+			acc += ucent(parts[4] << 16);
 			r[3] = cast(ulong) acc;
 			
 			assert((acc >> 64) == overflow, "Inconsistent carry detected");
@@ -398,55 +398,55 @@ private:
 		// larger than 62 bits, so acc can be a ucent.
 		ucent acc;
 		
-		acc += (cast(ucent) a.parts[0]) * b.parts[0];
+		acc += ucent(a.parts[0]) * b.parts[0];
 		rlow[0] = cast(ulong) acc & Mask;
 		acc >>= 52;
 		
-		acc += (cast(ucent) a.parts[1]) * b.parts[0];
-		acc += (cast(ucent) a.parts[0]) * b.parts[1];
+		acc += ucent(a.parts[1]) * b.parts[0];
+		acc += ucent(a.parts[0]) * b.parts[1];
 		rlow[1] = cast(ulong) acc & Mask;
 		acc >>= 52;
 		
-		acc += (cast(ucent) a.parts[2]) * b.parts[0];
-		acc += (cast(ucent) a.parts[1]) * b.parts[1];
-		acc += (cast(ucent) a.parts[0]) * b.parts[2];
+		acc += ucent(a.parts[2]) * b.parts[0];
+		acc += ucent(a.parts[1]) * b.parts[1];
+		acc += ucent(a.parts[0]) * b.parts[2];
 		rlow[2] = cast(ulong) acc & Mask;
 		acc >>= 52;
 		
-		acc += (cast(ucent) a.parts[3]) * b.parts[0];
-		acc += (cast(ucent) a.parts[2]) * b.parts[1];
-		acc += (cast(ucent) a.parts[1]) * b.parts[2];
-		acc += (cast(ucent) a.parts[0]) * b.parts[3];
+		acc += ucent(a.parts[3]) * b.parts[0];
+		acc += ucent(a.parts[2]) * b.parts[1];
+		acc += ucent(a.parts[1]) * b.parts[2];
+		acc += ucent(a.parts[0]) * b.parts[3];
 		rlow[3] = cast(ulong) acc & Mask;
 		acc >>= 52;
 		
-		acc += (cast(ucent) a.parts[4]) * b.parts[0];
-		acc += (cast(ucent) a.parts[3]) * b.parts[1];
-		acc += (cast(ucent) a.parts[2]) * b.parts[2];
-		acc += (cast(ucent) a.parts[1]) * b.parts[3];
-		acc += (cast(ucent) a.parts[0]) * b.parts[4];
+		acc += ucent(a.parts[4]) * b.parts[0];
+		acc += ucent(a.parts[3]) * b.parts[1];
+		acc += ucent(a.parts[2]) * b.parts[2];
+		acc += ucent(a.parts[1]) * b.parts[3];
+		acc += ucent(a.parts[0]) * b.parts[4];
 		rlow[4] = cast(ulong) acc & Mask;
 		acc >>= 52;
 		
-		acc += (cast(ucent) a.parts[4]) * b.parts[1];
-		acc += (cast(ucent) a.parts[3]) * b.parts[2];
-		acc += (cast(ucent) a.parts[2]) * b.parts[3];
-		acc += (cast(ucent) a.parts[1]) * b.parts[4];
+		acc += ucent(a.parts[4]) * b.parts[1];
+		acc += ucent(a.parts[3]) * b.parts[2];
+		acc += ucent(a.parts[2]) * b.parts[3];
+		acc += ucent(a.parts[1]) * b.parts[4];
 		rhigh[0] = cast(ulong) acc & Mask;
 		acc >>= 52;
 		
-		acc += (cast(ucent) a.parts[4]) * b.parts[2];
-		acc += (cast(ucent) a.parts[3]) * b.parts[3];
-		acc += (cast(ucent) a.parts[2]) * b.parts[4];
+		acc += ucent(a.parts[4]) * b.parts[2];
+		acc += ucent(a.parts[3]) * b.parts[3];
+		acc += ucent(a.parts[2]) * b.parts[4];
 		rhigh[1] = cast(ulong) acc & Mask;
 		acc >>= 52;
 		
-		acc += (cast(ucent) a.parts[4]) * b.parts[3];
-		acc += (cast(ucent) a.parts[3]) * b.parts[4];
+		acc += ucent(a.parts[4]) * b.parts[3];
+		acc += ucent(a.parts[3]) * b.parts[4];
 		rhigh[2] = cast(ulong) acc & Mask;
 		acc >>= 52;
 		
-		acc += (cast(ucent) a.parts[4]) * b.parts[4];
+		acc += ucent(a.parts[4]) * b.parts[4];
 		rhigh[3] = cast(ulong) acc & Mask;
 		acc >>= 52;
 		
