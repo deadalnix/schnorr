@@ -32,6 +32,14 @@ private:
 	enum NeedSkew = Steps <= (255 / N);
 	
 	/**
+	 * If N is not a divisor of 255 or 256, we have some extra bits
+	 * in our w-NAF representation. In this case, we can save a few
+	 * doubling in the first round.
+	 */
+	enum ExtraBits = (N * Steps) - (256 - NeedSkew);
+	enum HasExtraBits = ExtraBits != 0;
+	
+	/**
 	 * Each one these integers contains a bit sign in LSB, plus
 	 * an index for the multiplication table is the remaining bits.
 	 *
@@ -61,21 +69,19 @@ public:
 		}
 		
 		auto u = buf.extract();
-		foreach (i; 1 .. Steps) {
+		foreach (i; 1 .. Steps - HasExtraBits) {
 			auto bits = buf.extract();
 			
 			/**
-			 * If the current number is even, we need to
-			 * correct it such as it is odd, so we create
-			 * an all ones mask if even, 0 if odd.
+			 * If the current number is even, we need to correct it such as
+			 * it is odd, so we create an all ones mask if even, 0 if odd.
 			 */
 			auto even = (bits & 0x01) - 1;
 			
 			/**
-			 * To make it odd, we can either add or remove 1.
-			 * We want the previous digit to stay in range, so
-			 * if it is positive, we add, and subtract if not.
-			 * 1 if u is positive, -1 if negative.
+			 * To make it odd, we can either add or remove 1. We want
+			 * the previous digit to stay in range, so if it is positive,
+			 * we produce a 1, or a -1 if it isn't.
 			 */
 			auto sign = (u >> 31) | 0x01;
 			
@@ -83,10 +89,9 @@ public:
 			bits += (sign & even);
 			
 			/**
-			 * We compensate the addition in the previous digit
-			 * by adding or removing 16. We knows it stays in range
-			 * because we subtract or add  depending on its sign,
-			 * and because it is odd, it can't be zero.
+			 * We compensate the addition in the previous digit by adding or
+			 * removing 16. We knows it stays in range because we subtract or
+			 * add depending on its sign, and because it is odd, so non zero.
 			 */
 			u -= ((sign & even) << N);
 			
@@ -104,8 +109,27 @@ public:
 			u = bits;
 		}
 		
+		/**
+		 * This does an extra round but shift the bits right such as
+		 * some point doubling can be saved when multiplying.
+		 */
+		static if (HasExtraBits) {
+			auto bits = (buf.extract() << ExtraBits);
+			auto sign = (u >> 31) | 0x01;
+			
+			bits += sign;
+			u -= (sign << (N - ExtraBits));
+			
+			lookup[Steps - 2] = ((u ^ flipsign) ^ (u >> 31)) & 0xff;
+			u = bits;
+		}
+		
 		// Last digit, already corrected.
 		lookup[Steps - 1] = ((u ^ flipsign) ^ (u >> 31)) & 0xff;
+	}
+	
+	ubyte wNAFat(uint i) const {
+		return lookup[Steps - 1 - i];
 	}
 	
 	import crypto.point;
@@ -144,17 +168,36 @@ public:
 			return JacobianPoint.select(positive, p, p.negate());
 		}
 		
-		auto r = table.select(lookup[Steps - 1]);
-		foreach (i; 1 .. Steps) {
+		// For the initial value, we can just look it up in the table.
+		auto r = table.select(wNAFat(0));
+		
+		/**
+		 * If we have some extra bits in our w-NAF representation, we
+		 * special case the first round to save a few point doubling.
+		 */
+		static if (HasExtraBits) {
+			r = r.pdoublen!(N - ExtraBits)();
+			
+			// FIXME: Avoid point inversion here.
+			r = r.add(CartesianPoint(table.select(wNAFat(1))));
+		}
+		
+		/**
+		 * The core multiplication routine. We double by N and add
+		 * the value looked up from the table each round.
+		 */
+		foreach (i; 1 + HasExtraBits .. Steps) {
 			r = r.pdoublen!N();
 			
 			// FIXME: Avoid point inversion here.
-			r = r.add(CartesianPoint(table.select(lookup[Steps - 1 - i])));
+			r = r.add(CartesianPoint(table.select(wNAFat(i))));
 		}
 		
-		// If we can take advantage of the scalar being smaller, we can't rely
-		// simply on negating it to make sure it is odd. Instead, we skew the
-		// value by 1 for even numbers and 2 for odd ones and need to fixup.
+		/**
+		 * If we can take advantage of the scalar being smaller, we can't rely
+		 * simply on negating it to make sure it is odd. Instead, we skew the
+		 * value by 1 for even numbers and 2 for odd ones and need to fixup.
+		 */
 		static if (NeedSkew) {
 			auto fixup = CartesianPoint.select(odd, pdbl, p);
 			r = r.add(fixup.negate());
