@@ -133,6 +133,7 @@ public:
 		lookup[Steps - 1] = pack(u, flipsign);
 	}
 	
+	import crypto.point;
 	auto select(ref JacobianPoint[TableSize] table, uint i) const {
 		auto n = lookup[Steps - 1 - i];
 		
@@ -156,7 +157,32 @@ public:
 		return JacobianPoint.select(positive, p, p.negate());
 	}
 	
-	import crypto.point;
+	// FIXME: SDC is unable to figure select(P)(ref P[TableSize], uint i).
+	auto select(ref Point[TableSize] table, uint i) const {
+		auto n = lookup[Steps - 1 - i];
+		
+		// The least significant bit is the sign. We get rid of it
+		// to get the index we are interested in in the table
+		auto idx = n >> 1;
+		
+		/**
+		 * We want to avoid side channels attacks. One of the most common
+		 * side channel is memory access, as it impact the cache. To avoid
+		 * leaking the secret, we make sure no memory access depends on the
+		 * secret. This is achieved by accessing all elements in the table.
+		 */
+		auto p = table[0];
+		foreach (i; 1 .. TableSize) {
+			p = Point.select(i == idx, table[i], p);
+		}
+		
+		auto c = CartesianPoint(p);
+		
+		// Finaly we negate the point if the sign is negative.
+		auto positive = (n & 0x01) != 0;
+		return CartesianPoint.select(positive, c, c.negate());
+	}
+	
 	auto mul(CartesianPoint p) const {
 		// Build a table of odd multiples of p.
 		JacobianPoint[TableSize] table;
