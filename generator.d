@@ -38,7 +38,7 @@ private:
 	 */
 	// FIXME: importing crypto.point creates an infinite loop.
 	import crypto.point;
-	Point[16][64] lookup;
+	Point[16][64] lookup = void;
 	
 public:
 	this(Point generator, ubyte[32] seed) {
