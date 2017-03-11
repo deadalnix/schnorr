@@ -133,8 +133,27 @@ public:
 		lookup[Steps - 1] = pack(u, flipsign);
 	}
 	
-	ubyte wNAFat(uint i) const {
-		return lookup[Steps - 1 - i];
+	auto select(ref JacobianPoint[TableSize] table, uint i) const {
+		auto n = lookup[Steps - 1 - i];
+		
+		// The least significant bit is the sign. We get rid of it
+		// to get the index we are interested in in the table
+		auto idx = n >> 1;
+		
+		/**
+		 * We want to avoid side channels attacks. One of the most common
+		 * side channel is memory access, as it impact the cache. To avoid
+		 * leaking the secret, we make sure no memory access depends on the
+		 * secret. This is achieved by accessing all elements in the table.
+		 */
+		auto p = table[0];
+		foreach (i; 1 .. TableSize) {
+			p = JacobianPoint.select(i == idx, table[i], p);
+		}
+		
+		// Finaly we negate the point if the sign is negative.
+		auto positive = (n & 0x01) != 0;
+		return JacobianPoint.select(positive, p, p.negate());
 	}
 	
 	import crypto.point;
@@ -152,29 +171,8 @@ public:
 			table[i] = table[i - 1].add(pdbl);
 		}
 		
-		static select(ref JacobianPoint[TableSize] table, ubyte n) {
-			// The least significant bit is the sign. We get rid of it
-			// to get the index we are interested in in the table
-			auto idx = n >> 1;
-			
-			/**
-			 * We want to avoid side channels attacks. One of the most common
-			 * side channel is memory access, as it impact the cache. To avoid
-			 * leaking the secret, we make sure no memory access depends on the
-			 * secret. This is achieved by accessing all elements in the table.
-			 */
-			auto p = table[0];
-			foreach (i; 1 .. TableSize) {
-				p = JacobianPoint.select(i == idx, table[i], p);
-			}
-			
-			// Finaly we negate the point if the sign is negative.
-			auto positive = (n & 0x01) != 0;
-			return JacobianPoint.select(positive, p, p.negate());
-		}
-		
 		// For the initial value, we can just look it up in the table.
-		auto r = table.select(wNAFat(0));
+		auto r = select(table, 0);
 		
 		/**
 		 * If we have some extra bits in our w-NAF representation, we
@@ -184,7 +182,7 @@ public:
 			r = r.pdoublen!(N - ExtraBits)();
 			
 			// FIXME: Avoid point inversion here.
-			r = r.add(CartesianPoint(table.select(wNAFat(1))));
+			r = r.add(CartesianPoint(select(table, 1)));
 		}
 		
 		/**
@@ -195,7 +193,7 @@ public:
 			r = r.pdoublen!N();
 			
 			// FIXME: Avoid point inversion here.
-			r = r.add(CartesianPoint(table.select(wNAFat(i))));
+			r = r.add(CartesianPoint(select(table, i)));
 		}
 		
 		/**
