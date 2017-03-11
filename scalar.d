@@ -129,7 +129,7 @@ private:
 		);
 	}
 	
-	static Scalar order() {
+	static order() {
 		/**
 		 * secp256k1's order.
 		 *
@@ -137,12 +137,14 @@ private:
 		 * by multiplying G by a scalar. All scalar arithmetic
 		 * is done modulo the order.
 		 */
-		return Scalar(
-			0xFFFFFFFFFFFFFFFF,
-			0xFFFFFFFFFFFFFFFE,
-			0xBAAEDCE6AF48A03B,
-			0xBFD25E8CD0364141,
-		);
+		ulong[4] o;
+		
+		o[0] = 0xBFD25E8CD0364141;
+		o[1] = 0xBAAEDCE6AF48A03B;
+		o[2] = 0xFFFFFFFFFFFFFFFE;
+		o[3] = 0xFFFFFFFFFFFFFFFF;
+		
+		return Scalar(o);
 	}
 	
 	auto bitflip() const {
