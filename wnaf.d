@@ -49,8 +49,9 @@ private:
 	 */
 	ubyte[Steps] lookup;
 	static if (NeedSkew) {
-		bool negated;
-		bool odd;
+		// Just like lookups, the LSB is a sign bit and MSB are an index.
+		// TODO: create a wrapper struct for lookup and skew.
+		ubyte skew;
 	}
 	
 public:
@@ -61,8 +62,8 @@ public:
 		 * negate even scalars.
 		 */
 		static if (NeedSkew) {
-			bool flipsign = false;
-			auto buf = ScalarBuf(s, negated, odd);
+			auto buf = ScalarBuf(s, skew);
+			auto flipsign = !!(skew & 0x01);
 		} else {
 			bool flipsign;
 			auto buf = ScalarBuf(s, flipsign);
@@ -184,30 +185,108 @@ public:
 	}
 	
 	static fillTable(ref CartesianPoint[TableSize] table, CartesianPoint p) {
-		table[0] = p;
+		/**
+		 * To speedup computation, we drop the z value for pdbl and scale p by
+		 * the same amount. The end result is that all jacobian points will
+		 * essentially be correct, except the the z value which we will fixup.
+		 *
+		 * We exploit the fact that:
+		 * (ax, ay, az) + (bx, by, 1/globalz) =
+		 *                                (ax, ay, az*globalz) + (bx, by, 1)
+		 * and that
+		 * (ax, ay, az/globalz) + (bx, by, 1/globalz) = (rx, ry, rz/globalz)
+		 *                     for (rx, ry, rz) = (ax, ay, az) + (bx, by, 1)
+		 */
+		auto jdbl = p.pdouble();
+		auto pdbl = CartesianPoint(jdbl.x, jdbl.y, jdbl.infinity);
 		
-		// FIXME: Avoid point inversion here.
-		auto pdbl = CartesianPoint(p.pdouble());
-		table[1] = CartesianPoint(p.add(pdbl));
+		// We save our z value so we can fixup later on.
+		import crypto.field;
+		ComputeElement[TableSize - 1] zratios = void;
+		
+		// And we scale our p value by the same z.
+		table[0] = p.scale(jdbl.z);
+		
+		// First iterration, we use cartesian addition.
+		auto jp = table[0].addWithRatio(pdbl, zratios[0]);
+		auto lastZ = jp.z;
+		table[1] = CartesianPoint(jp.x, jp.y, jp.infinity);
 		
 		foreach (i; 2 .. TableSize) {
-			table[i] = CartesianPoint(table[i - 1].add(pdbl));
+			auto lp = table[i - 1];
+			jp = JacobianPoint(lp.x, lp.y, lastZ, lp.infinity);
+			jp = jp.addWithRatio(pdbl, zratios[i - 1]);
+			lastZ = jp.z;
+			table[i] = CartesianPoint(jp.x, jp.y, jp.infinity);
 		}
 		
-		return pdbl;
+		/**
+		 * All z values are off by a factor of jdbl.z .
+		 * We fix the last one and then normalize all entries in the table
+		 * so that we don't really need to care of individual z, only globalz.
+		 */
+		auto globalz = lastZ.mul(jdbl.z);
+		
+		// Now we got all our values, we need to fixup the z values.
+		auto pz = zratios[TableSize - 2];
+		
+		// Straightforward for the penultimate element.
+		table[TableSize - 2] = table[TableSize - 2].scale(pz);
+		
+		// Then we work our way backward to the first one.
+		foreach (i; 2 .. TableSize) {
+			auto n = TableSize - 1 - i;
+			pz = pz.mul(zratios[n]);
+			table[n] = table[n].scale(pz);
+		}
+		
+		static if (NeedSkew) {
+			pdbl = pdbl.scale(pz);
+			return JacobianPoint(pdbl.x, pdbl.y, globalz, pdbl.infinity);
+		} else {
+			return globalz;
+		}
+	}
+	
+	static fillNormalizedTable(ref Point[TableSize] table, CartesianPoint p) {
+		CartesianPoint[TableSize] ctable = void;
+		
+		auto fillRet = fillTable(ctable, p);
+		static if (NeedSkew) {
+			auto globalz = fillRet.z;
+		} else {
+			auto globalz = fillRet;
+		}
+		
+		/**
+		 * All entries in the table are at the wrong z coordinate.
+		 * We need to scale them all to the right coordinates.
+		 *
+		 * NB: We could do this instead of normalizing z, but it
+		 * doesn't matter for now.
+		 */
+		auto gzinv = globalz.inverse();
+		foreach (i; 0 .. 128) {
+			auto p = ctable[i].scale(gzinv);
+			table[i] = p.normalize();
+		}
 	}
 	
 	auto mul(CartesianPoint p) const {
 		// Build a table of odd multiples of p.
 		CartesianPoint[TableSize] table = void;
-		auto pdbl = fillTable(table, p);
+		static if (NeedSkew) {
+			auto jdbl = fillTable(table, p);
+		} else {
+			auto globalz = fillTable(table, p);
+		}
 		
 		// For the initial value, we can just look it up in the table.
 		auto first = select(table, 0);
 		
 		/**
 		 * We special case the first iterration to be able to use
-		 * cartesian multiplication instead of jacobian.
+		 * cartesian addition instead of jacobian.
 		 *
 		 * If we have some extra bits in our w-NAF representation, we
 		 * special case the first round to save a few point doubling.
@@ -230,12 +309,25 @@ public:
 		 * value by 1 for even numbers and 2 for odd ones and need to fixup.
 		 */
 		static if (NeedSkew) {
-			auto fixup = CartesianPoint.select(odd, pdbl, p);
-			r = r.add(fixup.negate());
+			/**
+			 * jdbl contains the cartesian coordiantes of our double point off
+			 * by the right z factor. The z coordinate contains the globalz for
+			 * the ultimate fixup. We can get the value for 1 in the table.
+			 */
+			auto globalz = jdbl.z;
+			auto pdbl = CartesianPoint(jdbl.x, jdbl.y, jdbl.infinity);
 			
-			// Negate if we need to.
-			r = JacobianPoint.select(negated, r.negate(), r);
+			auto fixup = CartesianPoint.select(!!(skew & 0x02), pdbl, table[0]);
+			fixup = CartesianPoint.select(!!(skew & 0x01), fixup, fixup.negate());
+			r = r.add(fixup);
 		}
+		
+		/**
+		 * We computed our multiplication such as all element are z
+		 * are equal to globalz and we can use cartesian addition for
+		 * speed. Now we fixup z by multiplying b the missing factor.
+		 */
+		r.z = r.z.mul(globalz);
 		
 		return r;
 	}
@@ -268,12 +360,12 @@ private:
 			negated = m != 0;
 		}
 		
-		this(Scalar s, ref bool negated, ref bool odd) {
+		this(Scalar s, ref ubyte skew) {
 			parts = s.getParts();
 			
 			// Mask from the sign.
 			auto m = long(parts[3]) >> 63;
-			auto skew = (parts[0] ^ m) & 0x01;
+			auto odd = (parts[0] ^ m) & 0x01;
 			
 			ulong[4] order;
 			order[0] = 0xBFD25E8CD0364141;
@@ -283,7 +375,7 @@ private:
 			
 			// We add 1 for even number, 2 for odds.
 			// plus one for the complement if apropriate.
-			ucent acc = skew + (m & 0x01) + 1;
+			ucent acc = odd + (m & 0x01) + 1;
 			foreach (i; 0 .. 4) {
 				acc += (order[i] & m);
 				acc += (parts[i] ^ m);
@@ -291,8 +383,8 @@ private:
 				acc >>= 64;
 			}
 			
-			negated = m != 0;
-			odd = skew != 0;
+			// Forward infos about transformations done.
+			skew = cast(ubyte) ((m & 0x01) | (odd << 1));
 		}
 		
 		auto extract() {

@@ -98,7 +98,12 @@ public:
 	
 	// auto opBinary(string op : "+")() const {
 	auto add(CartesianPoint b) const {
-		return addImpl(this, b);
+		ComputeElement zratio;
+		return addWithRatio(b, zratio);
+	}
+	
+	auto addWithRatio(CartesianPoint b, ref ComputeElement zratio) const {
+		return addImpl(this, b, zratio);
 	}
 	
 	auto opEquals(CartesianPoint b) const {
@@ -120,6 +125,12 @@ public:
 		return r.pdoublen!(N - 1)();
 	}
 	
+	auto scale(ComputeElement z) const {
+		auto z2 = z.square();
+		auto z3 = z2.mul(z);
+		return CartesianPoint(x.mul(z2), y.mul(z3), infinity);
+	}
+	
 	static select(bool cond, CartesianPoint a, CartesianPoint b) {
 		return CartesianPoint(
 			ComputeElement.select(cond, a.x, b.x),
@@ -135,7 +146,11 @@ public:
 	}
 	
 private:
-	static addImpl(CartesianPoint a, CartesianPoint b) {
+	static addImpl(
+		CartesianPoint a,
+		CartesianPoint b,
+		ref ComputeElement zratio,
+	) {
 		/**
 		 * Cost: 3M, 4S
 		 *
@@ -200,7 +215,8 @@ private:
 		auto ym = ComputeElement.select(degenerate, ComputeElement(0), d4);
 		
 		// ZR = 2*D
-		auto zr = d.muln!2();
+		zratio = d.muln!2();
+		auto zr = zratio;
 		auto zrzero = zr.zeroCheck();
 		
 		auto q = d2.mul(t);
@@ -321,7 +337,25 @@ public:
 	
 	// auto opBinary(string op : "+")() const {
 	auto add(CartesianPoint b) const {
-		return addImpl(this, b);
+		ComputeElement zratio;
+		return addWithRatio(b, zratio);
+	}
+	
+	auto addWithRatio(CartesianPoint b, ref ComputeElement zratio) const {
+		return addImpl(this, b, zratio);
+	}
+	
+	auto addScalled(CartesianPoint b, ComputeElement s) const {
+		/**
+		 * We could use the fact that
+		 * (ax, ay, az) + (bx, by, 1/globalz) =
+		 *                             (ax, ay, az*globalz) + (bx, by, 1)
+		 *
+		 * But that do not work for doubling, so we scale gp instead. We may
+		 * want to use this in the non hardedned version of the algorithm.
+		 */
+		b = b.scale(s);
+		return add(b);
 	}
 	
 	auto pdouble() const {
@@ -369,7 +403,11 @@ public:
 	}
 	
 private:
-	static addImpl(JacobianPoint a, CartesianPoint b) {
+	static addImpl(
+		JacobianPoint a,
+		CartesianPoint b,
+		ref ComputeElement zratio,
+	) {
 		/**
 		 * Cost: 7M, 5S
 		 *
@@ -476,8 +514,8 @@ private:
 		auto ym = ComputeElement.select(degenerate, ComputeElement(0), d4);
 		
 		// ZR = 2*D*Z
-		auto twod = d.muln!2();
-		auto zr = twod.mul(a.z);
+		zratio = d.muln!2();
+		auto zr = zratio.mul(a.z);
 		auto zrzero = zr.zeroCheck();
 		
 		auto q = d2.mul(t);

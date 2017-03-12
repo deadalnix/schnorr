@@ -14,14 +14,8 @@ private:
 	
 public:
 	this(CartesianPoint p) {
-		CartesianPoint[128] ctable = void;
-		
 		import crypto.wnaf;
-		Wnaf!8.fillTable(ctable, p);
-		
-		foreach (i; 0 .. 128) {
-			gtable[i] = ctable[i].normalize();
-		}
+		Wnaf!8.fillNormalizedTable(gtable, p);
 	}
 	
 	import crypto.scalar;
@@ -29,7 +23,7 @@ public:
 		CartesianPoint[8] ptable;
 		
 		import crypto.wnaf;
-		auto pdbl = Wnaf!4.fillTable(ptable, p);
+		auto globalz = Wnaf!4.fillTable(ptable, p);
 		
 		auto swnaf = Wnaf!8(s);
 		auto ewnaf = Wnaf!4(e);
@@ -37,18 +31,24 @@ public:
 		auto first = ewnaf.select(ptable, 0);
 		auto r = first.pdoublen!4();
 		
-		r = r.add(swnaf.select(gtable, 0));
 		r = r.add(ewnaf.select(ptable, 1));
+		
+		// G was precomputed in proper z coordinate.
+		r = r.addScalled(swnaf.select(gtable, 0), globalz);
 		
 		foreach (i; 1 .. 32) {
 			r = r.pdoublen!4();
 			r = r.add(ewnaf.select(ptable, 2*i));
 			
 			r = r.pdoublen!4();
-			r = r.add(swnaf.select(gtable, i));
 			r = r.add(ewnaf.select(ptable, 2*i + 1));
+			
+			// G was precomputed in proper z coordinate.
+			r = r.addScalled(swnaf.select(gtable, i), globalz);
 		}
 		
+		// Final fixup of the z coordinate and we are done.
+		r.z = r.z.mul(globalz);
 		return r;
 	}
 }

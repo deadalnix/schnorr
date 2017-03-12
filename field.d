@@ -42,6 +42,17 @@ public:
 		
 		return Element(r);
 	}
+	
+private:
+	void dump() const {
+		printf(
+			"%.16lx %.16lx %.16lx %.16lx".ptr,
+			parts[3],
+			parts[2],
+			parts[1],
+			parts[0],
+		);
+	}
 }
 
 /**
