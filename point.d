@@ -98,8 +98,7 @@ public:
 	
 	// auto opBinary(string op : "+")() const {
 	auto add(CartesianPoint b) const {
-		auto a = JacobianPoint(this);
-		return a.add(b);
+		return addImpl(this, b);
 	}
 	
 	auto opEquals(CartesianPoint b) const {
@@ -131,7 +130,103 @@ public:
 		);
 	}
 	
+	static selectj(bool cond, CartesianPoint a, JacobianPoint b) {
+		return JacobianPoint.selectc(cond, a, b);
+	}
+	
 private:
+	static addImpl(CartesianPoint a, CartesianPoint b) {
+		/**
+		 * Cost: 3M, 4S
+		 *
+		 * This is simply the jacobian formula with Z1 = Z2 = 1.
+		 * See the jacobian implementation for details.
+		 *
+		 * T = X1 + X2
+		 * M = Y1 + Y2
+		 * R = T^2 - X1*X2
+		 * D = M or X1 - X2
+		 * N = R or 2*Y1
+		 * Q = T * D^2
+		 * V = N^2 - Q
+		 * XR = 4*V
+		 * YM = M * D^3
+		 * YR = -4*(N*(V - Q) + YM)
+		 * ZR = 2*D
+		 *
+		 * We cannot use the formula found at
+		 *   https://hyperelliptic.org/EFD/g1p/auto-shortw-jacobian-0.html#addition-mmadd-2007-bl
+		 *
+		 * because it breaks down for point doubling.
+		 */
+		auto t = a.x.add(b.x);
+		
+		auto negbx = b.x.negate();
+		auto negaxbx = negbx.mul(a.x);
+		auto r = negaxbx.add(t.square());
+		auto rzero = r.zeroCheck();
+		
+		auto m = a.y.add(b.y);
+		auto mzero = m.zeroCheck();
+		
+		/**
+		 * If r and m are 0 then, y1 == -y2 and x1 ^ 3 == x2 ^ 3 but
+		 * x1 != x2. This means that x1 == beta*x2 or beta*x1 == x2,
+		 * where beta is a nontrivial cube root of one. In this case,
+		 * we use an alterantive expression for lambda and set R/M
+		 * accordingly.
+		 */
+		auto degenerate = rzero && mzero;
+		
+		// Ralt = Y1 - Y2 => Ralt = 2*Y1 when y1 = -y2.
+		auto ralt = a.y.muln!2();
+		auto n = ComputeElement.select(degenerate, ralt, r);
+		
+		// Malt = X1 - X2.
+		auto malt = negbx.add(a.x);
+		auto d = ComputeElement.select(degenerate, malt, m);
+		
+		/**
+		 * Now N / D = lambda and is guaranteed not to be 0/0.
+		 * From here on out N and D represent the numerator
+		 * and denominator of lambda; R and M represent the explicit
+		 * expressions x1^2 + x2^2 + x1x2 and y1 + y2.
+		 */
+		
+		// Either M == D or M == 0. We leverage this to compute
+		// M * D ^ 3 as either D ^ 4 or 0.
+		auto d2 = d.square();
+		auto d4 = d2.square();
+		auto ym = ComputeElement.select(degenerate, ComputeElement(0), d4);
+		
+		// ZR = 2*D
+		auto zr = d.muln!2();
+		auto zrzero = zr.zeroCheck();
+		
+		auto q = d2.mul(t);
+		auto negq = q.negate();
+		
+		// XR = 2*V
+		auto n2 = n.square();
+		auto v = n2.add(negq);
+		auto vdouble = v.muln!2();
+		auto xr = v.muln!4();
+		
+		// And we avoid negating too much by doing
+		// YR = -4*(N*(V - Q) + YM)
+		auto tmp = n.mul(vdouble.add(negq));
+		auto negyrquarter = tmp.add(ym);
+		auto yrquarter = negyrquarter.negate();
+		auto yr = yrquarter.muln!4();
+		
+		auto ret = JacobianPoint(xr, yr, zr, zrzero);
+		
+		// X + infinity = X.
+		ret = selectj(a.infinity, b, ret);
+		ret = selectj(b.infinity, a, ret);
+		return ret;
+	}
+	
 	static doubleImpl(CartesianPoint p) {
 		/**
 		 * The point at infinity doubles to itself.
@@ -359,7 +454,7 @@ private:
 		 */
 		auto degenerate = rzero && mzero;
 		
-		// Ralt = s1 - s2 => Ralt = 2*s1 when y& = -y2.
+		// Ralt = s1 - s2 => Ralt = 2*s1 when y1 = -y2.
 		auto ralt = s1.muln!2();
 		auto n = ComputeElement.select(degenerate, ralt, r);
 		
@@ -548,6 +643,9 @@ void main() {
 	}
 	
 	static testCAddRound(CartesianPoint a, CartesianPoint b, CartesianPoint r) {
+		auto s = a.add(b);
+		assert(s.opEquals(r), "a + b = r");
+		
 		// FIXME: sqrt can't run at compile time.
 		// enum Zs = getZs();
 		auto testZs = getZs();
@@ -560,8 +658,8 @@ void main() {
 			auto jy = z3.mul(a.y);
 			
 			auto ja = JacobianPoint(jx, jy, z, a.infinity);
-			auto s = ja.add(b);
-			assert(s.opEquals(r), "ja + b = r");
+			auto js = ja.add(b);
+			assert(js.opEquals(r), "ja + b = r");
 		}
 	}
 	
