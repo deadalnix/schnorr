@@ -179,7 +179,15 @@ public:
 		r[3] = 0xFFFFFFFFFFFFF * cc - parts[3];
 		r[4] = 0x0FFFFFFFFFFFF * cc - parts[4];
 		
-		return ComputeElement(r, cc);
+		/**
+		 * Technically, 0 will negate as p, so we should  count this
+		 * as a carry. However, it is preferable to consider p has not
+		 * being a carry, as it'll negate properly anyway, and this is
+		 * the only operation that depends on the carry count.
+		 *
+		 * We still want to make sure it isn't 0 as 0 means normalized.
+		 */
+		return ComputeElement(r, carryCount | (carryCount == 0));
 	}
 	
 	// auto opBinary(string op : "-")(Scalar b) const {
