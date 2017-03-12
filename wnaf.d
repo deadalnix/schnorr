@@ -134,7 +134,7 @@ public:
 	}
 	
 	import crypto.point;
-	auto select(ref JacobianPoint[TableSize] table, uint i) const {
+	auto select(ref CartesianPoint[TableSize] table, uint i) const {
 		auto n = lookup[Steps - 1 - i];
 		
 		// The least significant bit is the sign. We get rid of it
@@ -149,12 +149,12 @@ public:
 		 */
 		auto p = table[0];
 		foreach (i; 1 .. TableSize) {
-			p = JacobianPoint.select(i == idx, table[i], p);
+			p = CartesianPoint.select(i == idx, table[i], p);
 		}
 		
 		// Finaly we negate the point if the sign is negative.
 		auto positive = (n & 0x01) != 0;
-		return JacobianPoint.select(positive, p, p.negate());
+		return CartesianPoint.select(positive, p, p.negate());
 	}
 	
 	// FIXME: SDC is unable to figure select(P)(ref P[TableSize], uint i).
@@ -183,15 +183,15 @@ public:
 		return CartesianPoint.select(positive, c, c.negate());
 	}
 	
-	static fillTable(ref JacobianPoint[TableSize] table, CartesianPoint p) {
-		table[0] = JacobianPoint(p);
+	static fillTable(ref CartesianPoint[TableSize] table, CartesianPoint p) {
+		table[0] = p;
 		
 		// FIXME: Avoid point inversion here.
 		auto pdbl = CartesianPoint(p.pdouble());
-		table[1] = p.add(pdbl);
+		table[1] = CartesianPoint(p.add(pdbl));
 		
 		foreach (i; 2 .. TableSize) {
-			table[i] = table[i - 1].add(pdbl);
+			table[i] = CartesianPoint(table[i - 1].add(pdbl));
 		}
 		
 		return pdbl;
@@ -199,32 +199,29 @@ public:
 	
 	auto mul(CartesianPoint p) const {
 		// Build a table of odd multiples of p.
-		JacobianPoint[TableSize] table = void;
+		CartesianPoint[TableSize] table = void;
 		auto pdbl = fillTable(table, p);
 		
 		// For the initial value, we can just look it up in the table.
-		auto r = select(table, 0);
+		auto first = select(table, 0);
 		
 		/**
+		 * We special case the first iterration to be able to use
+		 * cartesian multiplication instead of jacobian.
+		 *
 		 * If we have some extra bits in our w-NAF representation, we
 		 * special case the first round to save a few point doubling.
 		 */
-		static if (HasExtraBits) {
-			r = r.pdoublen!(N - ExtraBits)();
-			
-			// FIXME: Avoid point inversion here.
-			r = r.add(CartesianPoint(select(table, 1)));
-		}
+		auto r = first.pdoublen!(N - ExtraBits)();
+		r = r.add(select(table, 1));
 		
 		/**
 		 * The core multiplication routine. We double by N and add
 		 * the value looked up from the table each round.
 		 */
-		foreach (i; 1 + HasExtraBits .. Steps) {
+		foreach (i; 2 .. Steps) {
 			r = r.pdoublen!N();
-			
-			// FIXME: Avoid point inversion here.
-			r = r.add(CartesianPoint(select(table, i)));
+			r = r.add(select(table, i));
 		}
 		
 		/**

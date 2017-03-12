@@ -14,30 +14,19 @@ private:
 	
 public:
 	this(CartesianPoint p) {
-		JacobianPoint[128] jgtable = void;
+		CartesianPoint[128] ctable = void;
 		
 		import crypto.wnaf;
-		Wnaf!8.fillTable(jgtable, p);
+		Wnaf!8.fillTable(ctable, p);
 		
-		/**
-		 * FIXME: It is possible to normalize en masse jacobian points using
-		 *   Z0 = z0
-		 *   Z1 = Z0*z1
-		 *   Z2 = Z1*z2
-		 *   Z2inv = Z2^-1
-		 *   z2inv = Z2inv*Z1
-		 *   Z1inv = Z2inv*z2
-		 *   z1inv = Z1inv*Z0
-		 *   z0inv = Z1inv*z1
-		 */
 		foreach (i; 0 .. 128) {
-			gtable[i] = jgtable[i].normalize();
+			gtable[i] = ctable[i].normalize();
 		}
 	}
 	
 	import crypto.scalar;
 	auto mul(Scalar s, Scalar e, CartesianPoint p) const {
-		JacobianPoint[8] ptable;
+		CartesianPoint[8] ptable;
 		
 		import crypto.wnaf;
 		auto pdbl = Wnaf!4.fillTable(ptable, p);
@@ -45,24 +34,19 @@ public:
 		auto swnaf = Wnaf!8(s);
 		auto ewnaf = Wnaf!4(e);
 		
-		auto r = ewnaf.select(ptable, 0);
-		r = r.pdoublen!4();
+		auto first = ewnaf.select(ptable, 0);
+		auto r = first.pdoublen!4();
 		
 		r = r.add(swnaf.select(gtable, 0));
-		r = r.add(CartesianPoint(ewnaf.select(ptable, 1)));
+		r = r.add(ewnaf.select(ptable, 1));
 		
 		foreach (i; 1 .. 32) {
 			r = r.pdoublen!4();
-			
-			// FIXME: avoid point inversion here.
-			r = r.add(CartesianPoint(ewnaf.select(ptable, 2*i)));
+			r = r.add(ewnaf.select(ptable, 2*i));
 			
 			r = r.pdoublen!4();
-			
 			r = r.add(swnaf.select(gtable, i));
-			
-			// FIXME: avoid point inversion here.
-			r = r.add(CartesianPoint(ewnaf.select(ptable, 2*i + 1)));
+			r = r.add(ewnaf.select(ptable, 2*i + 1));
 		}
 		
 		return r;
