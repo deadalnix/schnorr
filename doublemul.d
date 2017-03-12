@@ -15,15 +15,9 @@ private:
 public:
 	this(CartesianPoint p) {
 		JacobianPoint[128] jgtable = void;
-		jgtable[0] = JacobianPoint(p);
 		
-		// FIXME: Avoid point inversion here.
-		auto pdbl = CartesianPoint(p.pdouble());
-		jgtable[1] = p.add(pdbl);
-		
-		foreach (i; 2 .. jgtable.length) {
-			jgtable[i] = jgtable[i - 1].add(pdbl);
-		}
+		import crypto.wnaf;
+		Wnaf!8.fillTable(jgtable, p);
 		
 		/**
 		 * FIXME: It is possible to normalize en masse jacobian points using
@@ -43,20 +37,13 @@ public:
 	
 	import crypto.scalar;
 	auto mul(Scalar s, Scalar e, CartesianPoint p) const {
+		JacobianPoint[8] ptable;
+		
 		import crypto.wnaf;
+		auto pdbl = Wnaf!4.fillTable(ptable, p);
+		
 		auto swnaf = Wnaf!8(s);
 		auto ewnaf = Wnaf!4(e);
-		
-		JacobianPoint[8] ptable;
-		ptable[0] = JacobianPoint(p);
-		
-		// FIXME: Avoid point inversion here.
-		auto pdbl = CartesianPoint(p.pdouble());
-		ptable[1] = p.add(pdbl);
-		
-		foreach (i; 2 .. ptable.length) {
-			ptable[i] = ptable[i - 1].add(pdbl);
-		}
 		
 		auto r = ewnaf.select(ptable, 0);
 		r = r.pdoublen!4();

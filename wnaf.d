@@ -183,10 +183,7 @@ public:
 		return CartesianPoint.select(positive, c, c.negate());
 	}
 	
-	auto mul(CartesianPoint p) const {
-		// Build a table of odd multiples of p.
-		JacobianPoint[TableSize] table;
-		
+	static fillTable(ref JacobianPoint[TableSize] table, CartesianPoint p) {
 		table[0] = JacobianPoint(p);
 		
 		// FIXME: Avoid point inversion here.
@@ -196,6 +193,14 @@ public:
 		foreach (i; 2 .. TableSize) {
 			table[i] = table[i - 1].add(pdbl);
 		}
+		
+		return pdbl;
+	}
+	
+	auto mul(CartesianPoint p) const {
+		// Build a table of odd multiples of p.
+		JacobianPoint[TableSize] table = void;
+		auto pdbl = fillTable(table, p);
 		
 		// For the initial value, we can just look it up in the table.
 		auto r = select(table, 0);
