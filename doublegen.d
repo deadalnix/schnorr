@@ -1,7 +1,7 @@
-module crypto.doublemul;
+module crypto.doublegen;
 
 /**
- * This is a facility to compye formular of the form e*P + s*G
+ * This is a facility to compye formular of the form s*G + e*P
  * which are failry common when verifying signatures.
  *
  * This does precompute various data related to G and will compute

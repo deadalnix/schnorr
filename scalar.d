@@ -30,7 +30,7 @@ public:
 		auto a = order();
 		auto b = bitflip();
 		
-		auto mask = ulong(this.opEquals(Scalar(0))) - 1;
+		auto mask = ulong(isZero()) - 1;
 		
 		ulong[4] r;
 		ucent acc = 1;
@@ -90,6 +90,15 @@ public:
 		}
 		
 		return !neq;
+	}
+	
+	auto isZero() const {
+		ulong bits;
+		foreach (i; 0 .. 4) {
+			bits |= parts[i];
+		}
+		
+		return bits == 0;
 	}
 	
 	auto opCmp(Scalar b) const {

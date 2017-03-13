@@ -112,7 +112,7 @@ public:
 	}
 	
 	this(ulong s) {
-		this(Element(0, 0, 0, s));
+		this(Element(s));
 	}
 	
 	auto zeroCheck() {
