@@ -15,11 +15,14 @@ private:
 	ulong byteCount;
 	
 public:
+	enum BlockSize = 64;
+	
 	this() {
 		start();
 	}
 	
 	void start() {
+		byteCount = 0;
 		state[0] = 0x6a09e667;
 		state[1] = 0xbb67ae85;
 		state[2] = 0x3c6ef372;
@@ -34,18 +37,20 @@ public:
 		auto byteIndex = byteCount % 64;
 		
 		// If we can fill the buffer, do one round.
-		if (byteIndex && ((byteIndex + input.length) > 64)) {
+		if (byteIndex && ((byteIndex + input.length) >= 64)) {
 			auto count = 64 - byteIndex;
-			byteCount += count;
 			
-			memcpy(buffer.byUbyte.ptr, input.ptr, count);
+			memcpy(buffer.byUbyte.ptr + byteIndex, input.ptr, count);
 			transform(buffer.byUbyte);
 			
 			input = input[count .. input.length];
+			byteCount += count;
+			byteIndex = (byteIndex + count) % 64;
 		}
 		
 		// Now we don't need to bufferise.
-		while (input.length > 64) {
+		while (input.length >= 64) {
+			assert(byteIndex == 0, "unexpected buffer position");
 			transform(*(cast(ubyte[64]*) input.ptr));
 			input = input[64 .. input.length];
 			byteCount += 64;
@@ -53,7 +58,7 @@ public:
 		
 		// Put the remaining bytes in the buffer.
 		if (input.length > 0) {
-			memcpy(buffer.byUbyte.ptr, input.ptr, input.length);
+			memcpy(buffer.byUbyte.ptr + byteIndex, input.ptr, input.length);
 			byteCount += input.length;
 		}
 	}
@@ -64,8 +69,8 @@ public:
 		auto count = byteCount;
 		
 		// We want to pad up to 448 bits mod 512.
-		// This is 48 bytes mod 64.
-		auto paddingSize = 64 - ((byteCount + 16) % 64);
+		// This is 56 bytes mod 64.
+		auto paddingSize = 64 - ((byteCount + 8) % 64);
 		put(padding[0 .. paddingSize]);
 		
 		// SHA-256 append the size in bits to the last round.
@@ -84,6 +89,7 @@ public:
 		start();
 		return *(cast(ubyte[32]*) &ret);
 	}
+	
 private:
 	static get(ref ubyte[64] chunk, uint i) {
 		import sdc.intrinsics;
@@ -259,4 +265,87 @@ void Round(
 	uint t2 = BigSigma0(a) + Maj(a, b, c);
 	d += t1;
 	h = t1 + t2;
+}
+
+void main() {
+	static H(uint a, uint b, uint c, uint d, uint e, uint f, uint g, uint h) {
+		ubyte[32] hash;
+		auto ptr = cast(uint*) hash.ptr;
+		
+		import sdc.intrinsics;
+		ptr[0] = bswap(a);
+		ptr[1] = bswap(b);
+		ptr[2] = bswap(c);
+		ptr[3] = bswap(d);
+		ptr[4] = bswap(e);
+		ptr[5] = bswap(f);
+		ptr[6] = bswap(g);
+		ptr[7] = bswap(h);
+		
+		return hash;
+	}
+	
+	static testSHA(string str, ubyte[32] expected) {
+		auto data = (cast(const(ubyte)*) str.ptr)[0 .. str.length];
+		
+		SHA256 hasher;
+		hasher.start();
+		hasher.put(data);
+		auto h = hasher.finish();
+		foreach (i; 0 .. 32) {
+			assert(h[i] == expected[i]);
+		}
+		
+		hasher.start();
+		hasher.put(data[0 .. data.length / 2]);
+		hasher.put(data[data.length / 2 .. data.length]);
+		h = hasher.finish();
+		foreach (i; 0 .. 32) {
+			assert(h[i] == expected[i]);
+		}
+	}
+	
+	auto h = H(
+		0xe3b0c442, 0x98fc1c14, 0x9afbf4c8, 0x996fb924,
+		0x27ae41e4, 0x649b934c, 0xa495991b, 0x7852b855,
+	);
+	
+	testSHA("", h);
+	
+	h = H(
+		0xba7816bf, 0x8f01cfea, 0x414140de, 0x5dae2223,
+		0xb00361a3, 0x96177a9c, 0xb410ff61, 0xf20015ad,
+	);
+
+	testSHA("abc", h);
+	
+	h = H(
+		0x09fe9a46, 0xc8132f4a, 0x9d6d8919, 0x4c5d7dd8,
+		0xa6a79405, 0xff518653, 0xb2ee5ec6, 0x93d85dfd,
+	);
+	
+	testSHA("abcdbcdecdefdefgefghfghigijhijkijkljklmklmnlmnomnopnopq", h);
+	
+	h = H(
+		0x248d6a61, 0xd20638b8, 0xe5c02693, 0x0c3e6039,
+		0xa33ce459, 0x64ff2167, 0xf6ecedd4, 0x19db06c1,
+	);
+	
+	testSHA("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq", h);
+	
+	h = H(
+		0xf08a78cb, 0xbaee082b, 0x052ae070, 0x8f32fa1e,
+		0x50c5c421, 0xaa772ba5, 0xdbb406a2, 0xea6be342,
+	);
+	
+	testSHA("For this sample, this 63-byte string will be used as input data", h);
+	
+	h = H(
+		0xab64eff7, 0xe88e2e46, 0x165e29f2, 0xbce41826,
+		0xbd4c7b35, 0x52f6b382, 0xa9e7d3af, 0x47c245f8,
+	);
+	
+	testSHA("This is exactly 64 bytes long, not counting the terminating byte", h);
+	
+	printf("OK\n".ptr);
 }
