@@ -61,6 +61,27 @@ public:
 		throw new Exception();
 	}
 	
+	auto serialize() const {
+		ubyte[64] s;
+		
+		auto scoord = (cast(ubyte[32]*) s.ptr)[0 .. 2];
+		scoord[0] = x.serialize();
+		scoord[1] = y.serialize();
+		
+		return s;
+	}
+	
+	auto serializeCompact() const {
+		ubyte[33] s;
+		
+		s[0] = ubyte(y.isOdd()) << 1;
+		
+		auto xcoord = (cast(ubyte[32]*) &s[1]);
+		*xcoord = x.serialize();
+		
+		return s;
+	}
+	
 	static select(bool cond, Point a, Point b) {
 		return Point(
 			Element.select(cond, a.x, b.x),
