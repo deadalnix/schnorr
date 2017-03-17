@@ -21,6 +21,38 @@ public:
 		this(0, 0, 0, s);
 	}
 	
+	// auto opUnary(string op : "-")() const {
+	auto negate() const {
+		auto p = prime();
+		auto c = p.getParts();
+		
+		auto mask = ulong(isZero()) - 1;
+		
+		ulong[4] r;
+		ucent acc = 1;
+		
+		// This must be unrolled, or the compiler
+		// figures out it is a noop when mask is 0.
+		// FIXME: The compiler is still a smart ass and uses CMOV.
+		acc += c[0];
+		acc += ~parts[0];
+		r[0] = (cast(ulong) acc) & mask;
+		acc >>= 64;
+		acc += c[1];
+		acc += ~parts[1];
+		r[1] = (cast(ulong) acc) & mask;
+		acc >>= 64;
+		acc += c[2];
+		acc += ~parts[2];
+		r[2] = (cast(ulong) acc) & mask;
+		acc >>= 64;
+		acc += c[3];
+		acc += ~parts[3];
+		r[3] = (cast(ulong) acc) & mask;
+		
+		return Element(r);
+	}
+	
 	auto opEquals(Element b) const {
 		ulong neq;
 		foreach (i; 0 .. 4) {
@@ -28,6 +60,38 @@ public:
 		}
 		
 		return neq == 0;
+	}
+	
+	auto isZero() const {
+		ulong bits;
+		foreach (i; 0 .. 4) {
+			bits |= parts[i];
+		}
+		
+		return bits == 0;
+	}
+	
+	auto isEven() const {
+		return (parts[0] & 0x01) == 0;
+	}
+	
+	auto isOdd() const {
+		return (parts[0] & 0x01) == 1;
+	}
+	
+	auto serialize() const {
+		import crypto.uint256;
+		auto i = Uint256(parts);
+		return i.serialize();
+	}
+	
+	static unserializeOrZero(ref const(ubyte)[] buffer) {
+		import crypto.uint256;
+		auto i = Uint256.unserialize(buffer);
+		
+		// If i is greater than the prime, we return 0.
+		i = Uint256.select(i.opCmp(prime()) >= 0, Uint256(0), i);
+		return Element(i.getParts());
 	}
 	
 	static select(bool cond, Element a, Element b) {
@@ -53,6 +117,17 @@ private:
 			parts[0],
 		);
 	}
+	
+	static prime() {
+		// secp256k1's finite field prime parameter.
+		import crypto.uint256;
+		return Uint256(
+			0xFFFFFFFFFFFFFFFF,
+			0xFFFFFFFFFFFFFFFF,
+			0xFFFFFFFFFFFFFFFF,
+			0xFFFFFFFEFFFFFC2F,
+		);
+	}
 }
 
 /**
@@ -64,6 +139,81 @@ enum Beta = Element(
 	0x9cf0497512f58995,
 	0xc1396c28719501ee,
 );
+
+void testElement() {
+	static testNeg(Element n, Element negn) {
+		assert(n.opEquals(negn.negate()), "n = -negn");
+		assert(negn.opEquals(n.negate()), "-n = negn");
+	}
+	
+	auto zero = Element(0);
+	
+	testNeg(zero, zero);
+	assert(zero.isEven(), "0 is even");
+	assert(zero.isZero(), "0 is zero");
+	
+	auto one = Element(1);
+	assert(one.isOdd(), "1 is odd");
+	assert(!one.isZero(), "1 is not zero");
+	
+	auto two = Element(2);
+	assert(two.isEven(), "2 is even");
+	
+	auto three = Element(3);
+	assert(three.isOdd(), "3 is odd");
+	
+	auto four = Element(4);
+	assert(four.isEven(), "4 is even");
+	
+	auto negone = Element(
+		0xFFFFFFFFFFFFFFFF,
+		0xFFFFFFFFFFFFFFFF,
+		0xFFFFFFFFFFFFFFFF,
+		0xFFFFFFFEFFFFFC2E,
+	);
+	
+	testNeg(one, negone);
+	assert(negone.isEven(), "-1 is even");
+	
+	auto negtwo = Element(
+		0xFFFFFFFFFFFFFFFF,
+		0xFFFFFFFFFFFFFFFF,
+		0xFFFFFFFFFFFFFFFF,
+		0xFFFFFFFEFFFFFC2D,
+	);
+	
+	testNeg(two, negtwo);
+	assert(negtwo.isOdd(), "-2 is odd");
+	
+	auto beta = Beta;
+	auto negbeta = beta.negate();
+	testNeg(beta, negbeta);
+	
+	// Serialization
+	static testSerialization(Element a) {
+		auto buf = a.serialize();
+		auto bufSlice = buf.ptr[0 .. buf.length];
+		auto b = Element.unserializeOrZero(bufSlice);
+		
+		assert(a.opEquals(b), "serialization failed");
+	}
+	
+	testSerialization(zero);
+	testSerialization(one);
+	testSerialization(two);
+	testSerialization(negone);
+	testSerialization(negtwo);
+	testSerialization(beta);
+	testSerialization(negbeta);
+	
+	// Test invalid deserialization.
+	auto s = Element.prime();
+	auto sbuf = s.serialize();
+	auto sSlice = sbuf.ptr[0 .. sbuf.length];
+	auto ss = Element.unserializeOrZero(sSlice);
+	
+	assert(ss.opEquals(zero), "invalid unserialization yield zero");
+}
 
 struct ComputeElement {
 private:
@@ -96,19 +246,25 @@ private:
 	 * speedup calculations.
 	 */
 	enum Complement = 0x1000003D1;
-	
-public:
-	this(Element e) {
-		parts[0] = e.parts[0] & Mask;
-		parts[1] = (e.parts[0] >> 52 | e.parts[1] << 12) & Mask;
-		parts[2] = (e.parts[1] >> 40 | e.parts[2] << 24) & Mask;
-		parts[3] = (e.parts[2] >> 28 | e.parts[3] << 36) & Mask;
-		parts[4] = e.parts[3] >> 16;
+
+	this(ulong[4] p, uint carryCount) {
+		parts[0] = p[0] & Mask;
+		parts[1] = (p[0] >> 52 | p[1] << 12) & Mask;
+		parts[2] = (p[1] >> 40 | p[2] << 24) & Mask;
+		parts[3] = (p[2] >> 28 | p[3] << 36) & Mask;
+		parts[4] = p[3] >> 16;
+		
+		this.carryCount = carryCount;
 	}
 	
 	this(ulong[5] parts, uint carryCount) {
 		this.parts = parts;
 		this.carryCount = carryCount;
+	}
+	
+public:
+	this(Element e) {
+		this(e.parts, 0);
 	}
 	
 	this(ulong s) {
@@ -181,14 +337,13 @@ public:
 	
 	// auto opUnary(string op : "-")() const {
 	auto negate() const {
+		auto p = prime();
 		auto cc = carryCount + 1;
 		
 		ulong[5] r;
-		r[0] = 0xFFFFEFFFFFC2F * cc - parts[0];
-		r[1] = 0xFFFFFFFFFFFFF * cc - parts[1];
-		r[2] = 0xFFFFFFFFFFFFF * cc - parts[2];
-		r[3] = 0xFFFFFFFFFFFFF * cc - parts[3];
-		r[4] = 0x0FFFFFFFFFFFF * cc - parts[4];
+		foreach (i; 0 .. 5) {
+			r[i] = p.parts[i] * cc - parts[i];
+		}
 		
 		/**
 		 * Technically, 0 will negate as p, so we should  count this
@@ -304,6 +459,12 @@ private:
 			parts[0],
 			carryCount,
 		);
+	}
+	
+	static prime() {
+		// secp256k1's finite field prime parameter.
+		auto p = Element.prime();
+		return ComputeElement(p.getParts(), 1);
 	}
 	
 	struct NormalizationResult {
@@ -559,7 +720,7 @@ private:
 		
 		// The 223 heading ones of the base.
 		// 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFE
-		// 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFEFFFFFC2F
+		// 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFEFFFFFC2D
 		auto r = e223;
 		
 		// Now we got a 0 and 0xFFFFFC2D
@@ -649,7 +810,7 @@ private:
 	}
 }
 
-void main() {
+void testComputeElement() {
 	static testAdd(ComputeElement a, ComputeElement b, ComputeElement r) {
 		assert(r.opEquals(a.add(b)), "a + b == r");
 		assert(r.opEquals(b.add(a)), "b + a == r");
@@ -722,13 +883,7 @@ void main() {
 	testMul(negone, negtwo, two);
 	assert(negtwo.isOdd(), "-2 is odd");
 	
-	ulong[5] pparts;
-	pparts[0] = 0xFFFFEFFFFFC2F;
-	pparts[1] = 0xFFFFFFFFFFFFF;
-	pparts[2] = 0xFFFFFFFFFFFFF;
-	pparts[3] = 0xFFFFFFFFFFFFF;
-	pparts[4] = 0x0FFFFFFFFFFFF;
-	auto p = ComputeElement(pparts, 1);
+	auto p = ComputeElement.prime();
 	
 	testAdd(p, zero, zero);
 	testAdd(p, p, zero);
@@ -864,6 +1019,11 @@ void main() {
 	
 	assert(one.opEquals(beta3), "beta^3 == 1");
 	assert(one.opEquals(beta6), "beta2^3 == 1");
+}
+
+void main() {
+	testElement();
+	testComputeElement();
 	
 	printf("OK\n".ptr);
 }
