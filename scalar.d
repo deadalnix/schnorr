@@ -28,6 +28,7 @@ public:
 	// auto opUnary(string op : "-")() const {
 	auto negate() const {
 		auto o = order();
+		auto c = o.getParts();
 		
 		auto mask = ulong(isZero()) - 1;
 		
@@ -37,19 +38,19 @@ public:
 		// This must be unrolled, or the compiler
 		// figures out it is a noop when mask is 0.
 		// FIXME: The compiler is still a smart ass and uses CMOV.
-		acc += o[0];
+		acc += c[0];
 		acc += ~parts[0];
 		r[0] = (cast(ulong) acc) & mask;
 		acc >>= 64;
-		acc += o[1];
+		acc += c[1];
 		acc += ~parts[1];
 		r[1] = (cast(ulong) acc) & mask;
 		acc >>= 64;
-		acc += o[2];
+		acc += c[2];
 		acc += ~parts[2];
 		r[2] = (cast(ulong) acc) & mask;
 		acc >>= 64;
-		acc += o[3];
+		acc += c[3];
 		acc += ~parts[3];
 		r[3] = (cast(ulong) acc) & mask;
 		
@@ -100,30 +101,23 @@ public:
 		return bits == 0;
 	}
 	
-	auto opCmp(ulong[4] b) const {
-		int bigger;
-		int smaller;
-		foreach_reverse (i; 0 .. 4) {
-			// The higher ILP version require a few extra instructions.
-			// TODO: Need to benchmark which one is best.
-			enum WithILP = false;
-			static if (WithILP) {
-				auto isBigger  = (parts[i] > b[i]) & ~smaller;
-				auto isSmaller = (parts[i] < b[i]) & ~bigger;
-				
-				bigger  |= isBigger;
-				smaller |= isSmaller;
-			} else {
-				bigger  |= (parts[i] > b[i]) & ~smaller;
-				smaller |= (parts[i] < b[i]) & ~bigger;
-			}
-		}
-		
-		return bigger - smaller;
-	}
-	
 	auto inverse() const {
 		return inverseImpl(this);
+	}
+	
+	auto serialize() const {
+		import crypto.uint256;
+		auto i = Uint256(parts);
+		return i.serialize();
+	}
+	
+	static unserializeOrZero(ref const(ubyte)[] buffer) {
+		import crypto.uint256;
+		auto i = Uint256.unserialize(buffer);
+		
+		// If i is greater than the group order, we return 0.
+		i = Uint256.select(i.opCmp(order()) >= 0, Uint256(0), i);
+		return Scalar(i.getParts());
 	}
 	
 	static select(bool cond, Scalar a, Scalar b) {
@@ -158,23 +152,13 @@ private:
 		 * by multiplying G by a scalar. All scalar arithmetic
 		 * is done modulo the order.
 		 */
-		ulong[4] o;
-		
-		o[0] = 0xBFD25E8CD0364141;
-		o[1] = 0xBAAEDCE6AF48A03B;
-		o[2] = 0xFFFFFFFFFFFFFFFE;
-		o[3] = 0xFFFFFFFFFFFFFFFF;
-		
-		return o;
-	}
-	
-	static flippedOrder() {
-		auto o = order();
-		foreach (i; 0 .. 4) {
-			o[i] = ~o[i];
-		}
-		
-		return o;
+		import crypto.uint256;
+		return Uint256(
+			0xFFFFFFFFFFFFFFFF,
+			0xFFFFFFFFFFFFFFFE,
+			0xBAAEDCE6AF48A03B,
+			0xBFD25E8CD0364141,
+		);
 	}
 	
 	static addImpl(Scalar a, Scalar b) {
@@ -188,47 +172,50 @@ private:
 			acc >>= 64;
 		}
 		
-		return AddResult(Scalar(r), !!(acc & 0x01));
+		return AddResult(r, !!(acc & 0x01));
 	}
 	
 	struct AddResult {
-		Scalar result;
+		ulong[4] result;
 		bool carry;
 		
-		this(Scalar r, bool c) {
+		this(ulong[4] r, bool c) {
 			result = r;
 			carry = c;
 		}
 		
 		auto needReduce() const {
-			return (result.opCmp(order()) >= 0) | carry;
+			import crypto.uint256;
+			auto r = Uint256(result);
+			return (r.opCmp(order()) >= 0) | carry;
 		}
 		
 		auto reduce() const {
-			auto o = flippedOrder();
+			auto o = order();
+			auto nego = o.negate();
+			auto c = nego.getParts();
 			
-			auto carryIn = needReduce();
-			auto mask = -ulong(carryIn);
+			auto mask = -ulong(needReduce());
 			
 			ulong[4] r;
-			ucent acc = carryIn;
+			ucent acc;
 			
 			// This must be unrolled, or the compiler
 			// figures out it is a noop when mask is 0.
-			acc += o[0] & mask;
-			acc += result.parts[0];
+			acc += c[0] & mask;
+			acc += result[0];
 			r[0] = cast(ulong) acc;
 			acc >>= 64;
-			acc += o[1] & mask;
-			acc += result.parts[1];
+			acc += c[1] & mask;
+			acc += result[1];
 			r[1] = cast(ulong) acc;
 			acc >>= 64;
-			acc += o[2] & mask;
-			acc += result.parts[2];
+			acc += c[2] & mask;
+			acc += result[2];
 			r[2] = cast(ulong) acc;
 			acc >>= 64;
-			acc += o[3] & mask;
-			acc += result.parts[3];
+			acc += c[3] & mask;
+			acc += result[3];
 			r[3] = cast(ulong) acc;
 			
 			return Scalar(r);
@@ -236,41 +223,41 @@ private:
 	}
 	
 	static mulImpl(Scalar a, Scalar b) {
-		Scalar low, high;
+		ulong[4] low, high;
 		Accumulator acc;
 		
 		// Just the plain old school multiplication.
 		acc.muladd(a.parts[0], b.parts[0]);
-		low.parts[0] = acc.extract();
+		low[0] = acc.extract();
 		
 		acc.muladd(a.parts[0], b.parts[1]);
 		acc.muladd(a.parts[1], b.parts[0]);
-		low.parts[1] = acc.extract();
+		low[1] = acc.extract();
 		
 		acc.muladd(a.parts[0], b.parts[2]);
 		acc.muladd(a.parts[1], b.parts[1]);
 		acc.muladd(a.parts[2], b.parts[0]);
-		low.parts[2] = acc.extract();
+		low[2] = acc.extract();
 		
 		acc.muladd(a.parts[0], b.parts[3]);
 		acc.muladd(a.parts[1], b.parts[2]);
 		acc.muladd(a.parts[2], b.parts[1]);
 		acc.muladd(a.parts[3], b.parts[0]);
-		low.parts[3] = acc.extract();
+		low[3] = acc.extract();
 		
 		acc.muladd(a.parts[1], b.parts[3]);
 		acc.muladd(a.parts[2], b.parts[2]);
 		acc.muladd(a.parts[3], b.parts[1]);
-		high.parts[0] = acc.extract();
+		high[0] = acc.extract();
 		
 		acc.muladd(a.parts[2], b.parts[3]);
 		acc.muladd(a.parts[3], b.parts[2]);
-		high.parts[1] = acc.extract();
+		high[1] = acc.extract();
 		
 		acc.muladd(a.parts[3], b.parts[3]);
-		high.parts[2] = acc.extract();
+		high[2] = acc.extract();
 		
-		high.parts[3] = acc.extract();
+		high[3] = acc.extract();
 		
 		return MulResult(high, low);
 	}
@@ -330,19 +317,17 @@ private:
 	}
 	
 	struct MulResult {
-		Scalar low;
-		Scalar high;
+		ulong[4] low, high;
 		
-		this(Scalar h, Scalar l) {
+		this(ulong[4] h, ulong[4] l) {
 			low = l;
 			high = h;
 		}
 		
 		auto reduce() const {
-			auto c = flippedOrder();
-			
-			// To get the order, we need to add one.
-			c[0] += 1;
+			auto o = order();
+			auto nego = o.negate();
+			auto c = nego.getParts();
 			
 			// NB: We could make this algorithm independent of
 			// base by computing how many leading zero c has.
@@ -361,32 +346,32 @@ private:
 			
 			Accumulator acc;
 			
-			acc.add(low.parts[0]);
-			acc.muladd(high.parts[0], c[0]);
+			acc.add(low[0]);
+			acc.muladd(high[0], c[0]);
 			rlow[0] = acc.extract();
 			
-			acc.add(low.parts[1]);
-			acc.muladd(high.parts[1], c[0]);
-			acc.muladd(high.parts[0], c[1]);
+			acc.add(low[1]);
+			acc.muladd(high[1], c[0]);
+			acc.muladd(high[0], c[1]);
 			rlow[1] = acc.extract();
 			
-			acc.add(low.parts[2]);
-			acc.muladd(high.parts[2], c[0]);
-			acc.muladd(high.parts[1], c[1]);
-			acc.muladd(high.parts[0], c[2]);
+			acc.add(low[2]);
+			acc.muladd(high[2], c[0]);
+			acc.muladd(high[1], c[1]);
+			acc.muladd(high[0], c[2]);
 			rlow[2] = acc.extract();
 			
-			acc.add(low.parts[3]);
-			acc.muladd(high.parts[3], c[0]);
-			acc.muladd(high.parts[2], c[1]);
-			acc.muladd(high.parts[1], c[2]);
+			acc.add(low[3]);
+			acc.muladd(high[3], c[0]);
+			acc.muladd(high[2], c[1]);
+			acc.muladd(high[1], c[2]);
 			rlow[3] = acc.extract();
 			
-			acc.muladd(high.parts[3], c[1]);
-			acc.muladd(high.parts[2], c[2]);
+			acc.muladd(high[3], c[1]);
+			acc.muladd(high[2], c[2]);
 			rhigh.c0 = acc.extract();
 			
-			acc.muladd(high.parts[3], c[2]);
+			acc.muladd(high[3], c[2]);
 			rhigh.c1 = acc.extract();
 			rhigh.c2 = cast(uint) acc.extract();
 			
@@ -430,7 +415,7 @@ private:
 				uacc >>= 64;
 			}
 			
-			auto ar = AddResult(Scalar(r), !!(uacc & 0x01));
+			auto ar = AddResult(r, !!(uacc & 0x01));
 			return ar.reduce();
 		}
 	}
@@ -734,14 +719,40 @@ void main() {
 	testMul(n2, n2.inverse(), one);
 	
 	// Lambda
-	auto labmda = Lambda;
-	auto labmda2 = labmda.square();
-	auto labmda3 = labmda2.mul(labmda);
-	auto labmda4 = labmda2.square();
-	auto labmda6 = labmda4.mul(labmda2);
+	auto lambda = Lambda;
+	auto lambda2 = lambda.square();
+	auto lambda3 = lambda2.mul(lambda);
+	auto lambda4 = lambda2.square();
+	auto lambda6 = lambda4.mul(lambda2);
 	
-	assert(one.opEquals(labmda3), "labmda^3 == 1");
-	assert(one.opEquals(labmda6), "labmda2^3 == 1");
+	assert(one.opEquals(lambda3), "lambda^3 == 1");
+	assert(one.opEquals(lambda6), "lambda2^3 == 1");
+	
+	// Serialization
+	static testSerialization(Scalar a) {
+		auto buf = a.serialize();
+		auto bufSlice = buf.ptr[0 .. buf.length];
+		auto b = Scalar.unserializeOrZero(bufSlice);
+		
+		assert(a.opEquals(b), "serialization failed");
+	}
+	
+	testSerialization(zero);
+	testSerialization(one);
+	testSerialization(two);
+	testSerialization(negone);
+	testSerialization(negtwo);
+	testSerialization(lambda);
+	testSerialization(lambda2);
+	testSerialization(lambda4);
+	
+	// Test invalid deserialization.
+	auto s = Scalar.order();
+	auto sbuf = s.serialize();
+	auto sSlice = sbuf.ptr[0 .. sbuf.length];
+	auto ss = Scalar.unserializeOrZero(sSlice);
+	
+	assert(ss.opEquals(zero), "invalid unserialization yield zero");
 	
 	printf("OK\n".ptr);
 }
