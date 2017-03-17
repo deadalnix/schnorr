@@ -6,7 +6,7 @@ enum G = Point.getG();
 
 struct Point {
 private:
-	import crypto.field;
+	import crypto.element;
 	Element x;
 	Element y;
 	
@@ -46,7 +46,7 @@ private:
 
 struct CartesianPoint {
 private:
-	import crypto.field;
+	import crypto.element;
 	ComputeElement x;
 	ComputeElement y;
 	bool infinity;
@@ -296,7 +296,7 @@ private:
 
 struct JacobianPoint {
 private:
-	import crypto.field;
+	import crypto.element;
 	
 	// X = x / z^2
 	ComputeElement x;
@@ -604,7 +604,7 @@ private:
 }
 
 void main() {
-	import crypto.field;
+	import crypto.element;
 	static testConstruct(ComputeElement x, ComputeElement y) {
 		auto p = CartesianPoint(x, y, false);
 		auto a = CartesianPoint(x, false);

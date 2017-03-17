@@ -132,7 +132,7 @@ public:
 		// auto k = n + blindingFactor;
 		auto k = n.add(blindingFactor);
 		
-		import crypto.field;
+		import crypto.element;
 		auto zero = ComputeElement(0);
 		
 		auto parts = k.getParts();
@@ -199,7 +199,7 @@ void main() {
 	auto negtwog = gmul.gen(negtwo);
 	assert(negtwog.opEquals(dblg.negate()), "-2*G == - (G + G)");
 	
-	import crypto.field;
+	import crypto.element;
 	auto beta = ComputeElement(Beta);
 	auto beta2 = beta.square();
 	

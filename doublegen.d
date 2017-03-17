@@ -114,7 +114,7 @@ void main() {
 	auto negfourg = gen.mul(negtwo, negtwo, g);
 	assert(negfourg.opEquals(negquadg), "-2*G + -2*G == -4*G");
 	
-	import crypto.field;
+	import crypto.element;
 	auto beta = ComputeElement(Beta);
 	auto beta2 = beta.square();
 	

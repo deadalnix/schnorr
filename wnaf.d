@@ -201,7 +201,7 @@ public:
 		auto pdbl = CartesianPoint(jdbl.x, jdbl.y, jdbl.infinity);
 		
 		// We save our z value so we can fixup later on.
-		import crypto.field;
+		import crypto.element;
 		ComputeElement[TableSize - 1] zratios = void;
 		
 		// And we scale our p value by the same z.
@@ -445,7 +445,7 @@ void test(uint N)() {
 	auto negtwog = mulnegtwo.mul(g);
 	assert(negtwog.opEquals(dblg.negate()), "-2*G = -(G + G)");
 	
-	import crypto.field;
+	import crypto.element;
 	auto beta = ComputeElement(Beta);
 	auto beta2 = beta.square();
 	
