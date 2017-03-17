@@ -5,7 +5,6 @@ private:
 	// This is little endian all the way down.
 	ulong[4] parts;
 	
-public:
 	this(ulong[4] parts) {
 		this.parts = parts;
 	}
@@ -17,6 +16,7 @@ public:
 		parts[3] = a;
 	}
 	
+public:
 	this(ulong s) {
 		this(0, 0, 0, s);
 	}
@@ -27,8 +27,7 @@ public:
 	
 	// auto opUnary(string op : "-")() const {
 	auto negate() const {
-		auto a = order();
-		auto b = bitflip();
+		auto o = order();
 		
 		auto mask = ulong(isZero()) - 1;
 		
@@ -38,20 +37,20 @@ public:
 		// This must be unrolled, or the compiler
 		// figures out it is a noop when mask is 0.
 		// FIXME: The compiler is still a smart ass and uses CMOV.
-		acc += a.parts[0];
-		acc += b.parts[0];
+		acc += o[0];
+		acc += ~parts[0];
 		r[0] = (cast(ulong) acc) & mask;
 		acc >>= 64;
-		acc += a.parts[1];
-		acc += b.parts[1];
+		acc += o[1];
+		acc += ~parts[1];
 		r[1] = (cast(ulong) acc) & mask;
 		acc >>= 64;
-		acc += a.parts[2];
-		acc += b.parts[2];
+		acc += o[2];
+		acc += ~parts[2];
 		r[2] = (cast(ulong) acc) & mask;
 		acc >>= 64;
-		acc += a.parts[3];
-		acc += b.parts[3];
+		acc += o[3];
+		acc += ~parts[3];
 		r[3] = (cast(ulong) acc) & mask;
 		
 		return Scalar(r);
@@ -101,7 +100,7 @@ public:
 		return bits == 0;
 	}
 	
-	auto opCmp(Scalar b) const {
+	auto opCmp(ulong[4] b) const {
 		int bigger;
 		int smaller;
 		foreach_reverse (i; 0 .. 4) {
@@ -109,14 +108,14 @@ public:
 			// TODO: Need to benchmark which one is best.
 			enum WithILP = false;
 			static if (WithILP) {
-				auto isBigger  = (parts[i] > b.parts[i]) & ~smaller;
-				auto isSmaller = (parts[i] < b.parts[i]) & ~bigger;
+				auto isBigger  = (parts[i] > b[i]) & ~smaller;
+				auto isSmaller = (parts[i] < b[i]) & ~bigger;
 				
 				bigger  |= isBigger;
 				smaller |= isSmaller;
 			} else {
-				bigger  |= (parts[i] > b.parts[i]) & ~smaller;
-				smaller |= (parts[i] < b.parts[i]) & ~bigger;
+				bigger  |= (parts[i] > b[i]) & ~smaller;
+				smaller |= (parts[i] < b[i]) & ~bigger;
 			}
 		}
 		
@@ -125,6 +124,19 @@ public:
 	
 	auto inverse() const {
 		return inverseImpl(this);
+	}
+	
+	static select(bool cond, Scalar a, Scalar b) {
+		auto maska = -ulong(cond);
+		auto maskb = ~maska;
+		
+		ulong[4] r;
+		foreach (i; 0 .. 4) {
+			// FIXME: The compiler is still a smart ass and uses CMOV.
+			r[i] = (a.parts[i] & maska) | (b.parts[i] & maskb);
+		}
+		
+		return Scalar(r);
 	}
 	
 private:
@@ -153,15 +165,16 @@ private:
 		o[2] = 0xFFFFFFFFFFFFFFFE;
 		o[3] = 0xFFFFFFFFFFFFFFFF;
 		
-		return Scalar(o);
+		return o;
 	}
 	
-	auto bitflip() const {
-		return Scalar(~parts[3], ~parts[2], ~parts[1], ~parts[0]);
-	}
-	
-	auto complement() const {
-		return addImpl(bitflip(), Scalar(1)).result;
+	static flippedOrder() {
+		auto o = order();
+		foreach (i; 0 .. 4) {
+			o[i] = ~o[i];
+		}
+		
+		return o;
 	}
 	
 	static addImpl(Scalar a, Scalar b) {
@@ -192,30 +205,30 @@ private:
 		}
 		
 		auto reduce() const {
-			auto o = order();
-			auto b = o.complement();
+			auto o = flippedOrder();
 			
-			auto mask = -ulong(needReduce());
+			auto carryIn = needReduce();
+			auto mask = -ulong(carryIn);
 			
 			ulong[4] r;
-			ucent acc;
+			ucent acc = carryIn;
 			
 			// This must be unrolled, or the compiler
 			// figures out it is a noop when mask is 0.
+			acc += o[0] & mask;
 			acc += result.parts[0];
-			acc += b.parts[0] & mask;
 			r[0] = cast(ulong) acc;
 			acc >>= 64;
+			acc += o[1] & mask;
 			acc += result.parts[1];
-			acc += b.parts[1] & mask;
 			r[1] = cast(ulong) acc;
 			acc >>= 64;
+			acc += o[2] & mask;
 			acc += result.parts[2];
-			acc += b.parts[2] & mask;
 			r[2] = cast(ulong) acc;
 			acc >>= 64;
+			acc += o[3] & mask;
 			acc += result.parts[3];
-			acc += b.parts[3] & mask;
 			r[3] = cast(ulong) acc;
 			
 			return Scalar(r);
@@ -326,14 +339,16 @@ private:
 		}
 		
 		auto reduce() const {
-			auto o = order();
-			auto c = o.complement();
+			auto c = flippedOrder();
+			
+			// To get the order, we need to add one.
+			c[0] += 1;
 			
 			// NB: We could make this algorithm independent of
 			// base by computing how many leading zero c has.
 			// Each reduction steps eliminates that many bits.
-			assert(c.parts[2] == 1);
-			assert(c.parts[3] == 0);
+			assert(c[2] == 1);
+			assert(c[3] == 0);
 			
 			/**
 			 * Reduce to 385 bits via r = low + high * -base.
@@ -347,31 +362,31 @@ private:
 			Accumulator acc;
 			
 			acc.add(low.parts[0]);
-			acc.muladd(high.parts[0], c.parts[0]);
+			acc.muladd(high.parts[0], c[0]);
 			rlow[0] = acc.extract();
 			
 			acc.add(low.parts[1]);
-			acc.muladd(high.parts[1], c.parts[0]);
-			acc.muladd(high.parts[0], c.parts[1]);
+			acc.muladd(high.parts[1], c[0]);
+			acc.muladd(high.parts[0], c[1]);
 			rlow[1] = acc.extract();
 			
 			acc.add(low.parts[2]);
-			acc.muladd(high.parts[2], c.parts[0]);
-			acc.muladd(high.parts[1], c.parts[1]);
-			acc.muladd(high.parts[0], c.parts[2]);
+			acc.muladd(high.parts[2], c[0]);
+			acc.muladd(high.parts[1], c[1]);
+			acc.muladd(high.parts[0], c[2]);
 			rlow[2] = acc.extract();
 			
 			acc.add(low.parts[3]);
-			acc.muladd(high.parts[3], c.parts[0]);
-			acc.muladd(high.parts[2], c.parts[1]);
-			acc.muladd(high.parts[1], c.parts[2]);
+			acc.muladd(high.parts[3], c[0]);
+			acc.muladd(high.parts[2], c[1]);
+			acc.muladd(high.parts[1], c[2]);
 			rlow[3] = acc.extract();
 			
-			acc.muladd(high.parts[3], c.parts[1]);
-			acc.muladd(high.parts[2], c.parts[2]);
+			acc.muladd(high.parts[3], c[1]);
+			acc.muladd(high.parts[2], c[2]);
 			rhigh.c0 = acc.extract();
 			
-			acc.muladd(high.parts[3], c.parts[2]);
+			acc.muladd(high.parts[3], c[2]);
 			rhigh.c1 = acc.extract();
 			rhigh.c2 = cast(uint) acc.extract();
 			
@@ -382,26 +397,26 @@ private:
 			acc.clear();
 			
 			acc.add(rlow[0]);
-			acc.muladd(rhigh.c0, c.parts[0]);
+			acc.muladd(rhigh.c0, c[0]);
 			r[0] = acc.extract();
 			
 			acc.add(rlow[1]);
-			acc.muladd(rhigh.c1, c.parts[0]);
-			acc.muladd(rhigh.c0, c.parts[1]);
+			acc.muladd(rhigh.c1, c[0]);
+			acc.muladd(rhigh.c0, c[1]);
 			r[1] = acc.extract();
 			
 			acc.add(rlow[2]);
-			acc.muladd(rhigh.c2, c.parts[0]);
-			acc.muladd(rhigh.c1, c.parts[1]);
-			acc.muladd(rhigh.c0, c.parts[2]);
+			acc.muladd(rhigh.c2, c[0]);
+			acc.muladd(rhigh.c1, c[1]);
+			acc.muladd(rhigh.c0, c[2]);
 			r[2] = acc.extract();
 			
 			acc.add(rlow[3]);
-			acc.muladd(rhigh.c2, c.parts[1]);
-			acc.muladd(rhigh.c1, c.parts[2]);
+			acc.muladd(rhigh.c2, c[1]);
+			acc.muladd(rhigh.c1, c[2]);
 			r[3] = acc.extract();
 			
-			acc.muladd(rhigh.c2, c.parts[2]);
+			acc.muladd(rhigh.c2, c[2]);
 			carries = cast(uint) acc.extract();
 			
 			// Last round, we know that we have at most one carry,
@@ -410,7 +425,7 @@ private:
 			
 			foreach (i; 0 .. 4) {
 				uacc += r[i];
-				uacc += ucent(c.parts[i]) * carries;
+				uacc += ucent(c[i]) * carries;
 				r[i] = cast(ulong) uacc;
 				uacc >>= 64;
 			}
