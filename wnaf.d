@@ -421,7 +421,8 @@ void test(uint N)() {
 	auto zero = Scalar(0);
 	auto mulzero = Wnaf!N(zero);
 	auto zerog = mulzero.mul(g);
-	auto inf = CartesianPoint(g.add(g.negate()));
+	auto jinf = g.add(g.negate());
+	auto inf = jinf.asCartesian();
 	assert(zerog.opEquals(inf), "0*G == O");
 	
 	auto one = Scalar(1);
@@ -437,7 +438,8 @@ void test(uint N)() {
 	auto two = Scalar(2);
 	auto multwo = Wnaf!N(two);
 	auto twog = multwo.mul(g);
-	auto dblg = CartesianPoint(g.pdouble());
+	auto jdblg = g.pdouble();
+	auto dblg = jdblg.asCartesian();
 	assert(twog.opEquals(dblg), "2*G = G + G");
 	
 	auto negtwo = two.negate();

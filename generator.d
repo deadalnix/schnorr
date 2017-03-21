@@ -51,23 +51,26 @@ public:
 		
 		// FIXME: Use the seed to generate a random point.
 		auto u = CartesianPoint(generator);
-		JacobianPoint[16][64] jlookup = void;
+		JacobianPoint[16] jlookup = void;
 		
 		auto gbase = CartesianPoint(generator);
 		auto ubase = JacobianPoint(u);
 		
 		foreach (i; 0 .. 63) {
-			jlookup[i][0] = ubase;
+			jlookup[0] = ubase;
 			foreach (j; 1 .. 16) {
-				jlookup[i][j] = jlookup[i][j - 1].add(gbase);
+				jlookup[j] = jlookup[j - 1].add(gbase);
 			}
+			
+			// Normalize the point into the lookup table.
+			JacobianPoint.massNormalize(jlookup, lookup[i]);
 			
 			// Multiply gbase by 16 to get ready for the next round.
 			auto jgbase = gbase.pdoublen!4();
 			
 			// FIXME: Works in jacobian for gbase all the way to avoid
 			// expensive z inversion.
-			gbase = CartesianPoint(jgbase);
+			gbase = jgbase.asCartesian();
 			
 			// Double ubase to get the next Ui.
 			ubase = ubase.pdouble();
@@ -78,27 +81,12 @@ public:
 		ubase = ubase.negate();
 		ubase = ubase.add(u);
 		
-		jlookup[63][0] = ubase;
+		jlookup[0] = ubase;
 		foreach (j; 1 .. 16) {
-			jlookup[63][j] = jlookup[63][j - 1].add(gbase);
+			jlookup[j] = jlookup[j - 1].add(gbase);
 		}
 		
-		/**
-		 * FIXME: It is possible to normalize en masse jacobian points using
-		 *   Z0 = z0
-		 *   Z1 = Z0*z1
-		 *   Z2 = Z1*z2
-		 *   Z2inv = Z2^-1
-		 *   z2inv = Z2inv*Z1
-		 *   Z1inv = Z2inv*z2
-		 *   z1inv = Z1inv*Z0
-		 *   z0inv = Z1inv*z1
-		 */
-		foreach (i; 0 .. 64) {
-			foreach (j; 0 .. 16) {
-				lookup[i][j] = jlookup[i][j].normalize();
-			}
-		}
+		JacobianPoint.massNormalize(jlookup, lookup[63]);
 		
 		// We are now in a state where we can multiply, so we can compute
 		// a blinding factor and update the lookup tables with it.
@@ -120,10 +108,10 @@ public:
 		
 		foreach (i; 0 .. 64) {
 			foreach (j; 0 .. 16) {
-				auto p = CartesianPoint(lookup[i][j]);
-				auto jbg = jbgs[i].add(p);
-				lookup[i][j] = jbg.normalize();
+				jlookup[j] = jbgs[i].add(CartesianPoint(lookup[i][j]));
 			}
+			
+			JacobianPoint.massNormalize(jlookup, lookup[i]);
 		}
 	}
 	
@@ -179,7 +167,8 @@ void main() {
 	import crypto.scalar;
 	auto zero = Scalar(0);
 	auto zerog = gmul.gen(zero);
-	auto inf = CartesianPoint(g.add(g.negate()));
+	auto jinf = g.add(g.negate());
+	auto inf = jinf.asCartesian();
 	assert(zerog.opEquals(inf), "0*G == O");
 	
 	auto one = Scalar(1);
@@ -192,7 +181,8 @@ void main() {
 	
 	auto two = Scalar(2);
 	auto twog = gmul.gen(two);
-	auto dblg = CartesianPoint(g.pdouble());
+	auto jdblg = g.pdouble();
+	auto dblg = jdblg.asCartesian();
 	assert(twog.opEquals(dblg), "2*G == G + G");
 	
 	auto negtwo = two.negate();

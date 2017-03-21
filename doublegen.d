@@ -62,11 +62,13 @@ void main() {
 	auto zero = Scalar(0);
 	
 	auto zerog0 = gen.mul(zero, zero, g);
-	auto inf = CartesianPoint(g.add(g.negate()));
+	auto jinf = g.add(g.negate());
+	auto inf = jinf.asCartesian();
 	assert(zerog0.opEquals(inf), "0*G + 0*G == O");
 	
 	auto one = Scalar(1);
-	auto dblg = CartesianPoint(g.pdouble());
+	auto jdblg = g.pdouble();
+	auto dblg = jdblg.asCartesian();
 	auto oneg0 = gen.mul(one, zero, g);
 	assert(oneg0.opEquals(g), "1*G + 0*G == G");
 	auto oneg1 = gen.mul(zero, one, g);
@@ -89,7 +91,8 @@ void main() {
 	assert(negtwog0.opEquals(negdblg), "-1*G + -1*G == -2*G");
 	
 	auto two = Scalar(2);
-	auto quadg = CartesianPoint(dblg.pdouble());
+	auto jquadg = dblg.pdouble();
+	auto quadg = jquadg.asCartesian();
 	auto twog1 = gen.mul(two, zero, g);
 	assert(twog1.opEquals(dblg), "2*G + 0*G == 2*G");
 	auto twog2 = gen.mul(zero, two, g);
@@ -126,7 +129,8 @@ void main() {
 	auto lambdag1 = gen.mul(lambda, zero, g);
 	assert(lambdag1.opEquals(betaxg), "Lambda*G + 0*G == (Beta*G.x, G.y)");
 	
-	auto dblbetaxg = CartesianPoint(betaxg.pdouble());
+	auto jdblbetaxg = betaxg.pdouble();
+	auto dblbetaxg = jdblbetaxg.asCartesian();
 	auto dbllambdag0 = gen.mul(lambda, one, betaxg);
 	assert(
 		dbllambdag0.opEquals(dblbetaxg),

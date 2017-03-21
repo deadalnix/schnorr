@@ -17,7 +17,6 @@ public:
 	}
 	
 	// TODO: implicit cast to CartesianPoint.
-	
 	static select(bool cond, Point a, Point b) {
 		return Point(
 			Element.select(cond, a.x, b.x),
@@ -54,20 +53,6 @@ private:
 public:
 	this(Point p) {
 		this(ComputeElement(p.x), ComputeElement(p.y), false);
-	}
-	
-	// Consider moving this to the JacobianPoint
-	// and do z normalization in the process.
-	this(JacobianPoint p) {
-		auto zinv = p.z.inverse();
-		
-		auto zinv2 = zinv.square();
-		auto cx = zinv2.mul(p.x);
-		
-		auto zinv3 = zinv2.mul(zinv);
-		auto cy = zinv3.mul(p.y);
-		
-		this(cx, cy, p.infinity);
 	}
 	
 	this(ComputeElement x, ComputeElement y, bool infinity) {
@@ -323,11 +308,15 @@ public:
 		this.infinity = infinity;
 	}
 	
+	auto asCartesian() const {
+		return asCartesianWithZinv(z.inverse());
+	}
+	
 	auto normalize() const {
 		// XXX: in contract
 		assert(!infinity);
-		auto p = CartesianPoint(this);
-		return p.normalize();
+		auto c = asCartesian();
+		return c.normalize();
 	}
 	
 	// auto opUnary(string op : "-")() const {
@@ -402,7 +391,61 @@ public:
 		return select(cond, JacobianPoint(a), b);
 	}
 	
+	static massNormalize(uint N)(
+		ref JacobianPoint[N] jtable,
+		ref Point[N] table,
+	) {
+		/**
+		 * It is possible to inverse en masse using
+		 *   Z0 = z0
+		 *   Z1 = Z0*z1
+		 *   Z2 = Z1*z2
+		 *   Z2inv = Z2^-1
+		 *   z2inv = Z2inv*Z1
+		 *   Z1inv = Z2inv*z2
+		 *   z1inv = Z1inv*Z0
+		 *   z0inv = Z1inv*z1
+		 */
+		ComputeElement[N] invs = void;
+		
+		invs[0] = jtable[0].z;
+		foreach (i; 1 .. N) {
+			invs[i] = invs[i - 1].mul(jtable[i].z);
+		}
+		
+		auto x = invs[N - 1].inverse();
+		foreach (i; 1 .. N) {
+			auto n = N - i;
+			invs[n] = x.mul(invs[n - 1]);
+			x = x.mul(jtable[n].z);
+		}
+		
+		invs[0] = x;
+		
+		// Now that we computed all inverse we can normalize.
+		foreach (i; 0 .. N) {
+			auto c = jtable[i].asCartesianWithZinv(invs[i]);
+			table[i] = c.normalize();
+		}
+	}
+	
 private:
+	auto asCartesianWithZinv(ComputeElement zinv) const {
+		// FIXME: in contract
+		auto zero = ComputeElement(0);
+		auto one = ComputeElement(1);
+		assert(z.opEquals(zero) || one.opEquals(z.mul(zinv)));
+		
+		// Use Zinv to compute cartesian coordinates.
+		auto zinv2 = zinv.square();
+		auto cx = zinv2.mul(x);
+		
+		auto zinv3 = zinv2.mul(zinv);
+		auto cy = zinv3.mul(y);
+		
+		return CartesianPoint(cx, cy, infinity);
+	}
+	
 	static addImpl(
 		JacobianPoint a,
 		CartesianPoint b,
