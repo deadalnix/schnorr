@@ -55,6 +55,10 @@ public:
 		this(ComputeElement(p.x), ComputeElement(p.y), false);
 	}
 	
+	this(CartesianPoint p) {
+		this(p.x, p.y, p.infinity);
+	}
+	
 	this(ComputeElement x, ComputeElement y, bool infinity) {
 		this.x = x;
 		this.y = y;
