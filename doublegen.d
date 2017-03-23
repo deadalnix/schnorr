@@ -13,9 +13,9 @@ private:
 	Point[128] gtable = void;
 	
 public:
-	this(CartesianPoint p) {
+	this(Point p) {
 		import crypto.wnaf;
-		Wnaf!8.fillNormalizedTable(gtable, p);
+		Wnaf!8.fillNormalizedTable(gtable, CartesianPoint(p));
 	}
 	
 	import crypto.scalar;
@@ -56,7 +56,7 @@ public:
 void main() {
 	import crypto.point;
 	auto g = CartesianPoint(Point.getG());
-	auto gen = DoubleGen(g);
+	auto gen = DoubleGen(Point.getG());
 	
 	import crypto.scalar;
 	auto zero = Scalar(0);
