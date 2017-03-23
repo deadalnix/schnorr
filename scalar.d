@@ -63,6 +63,12 @@ public:
 		return r.reduce();
 	}
 	
+	// auto opBinary(string op : "-")(Scalar b) const {
+	auto sub(Scalar b) const {
+		auto r = addImpl(this, b.negate());
+		return r.reduce();
+	}
+	
 	// auto opBinary(string op : "*")(Scalar b) const {
 	auto mul(Scalar b) const {
 		auto r = mulImpl(this, b);
@@ -629,6 +635,8 @@ void main() {
 	static testAdd(Scalar a, Scalar b, Scalar r) {
 		assert(r.opEquals(a.add(b)), "a + b == r");
 		assert(r.opEquals(b.add(a)), "b + a == r");
+		assert(r.opEquals(a.sub(b.negate())), "a - -b == r");
+		assert(r.opEquals(b.sub(a.negate())), "b - -a == r");
 	}
 	
 	static testNeg(Scalar n, Scalar negn) {
