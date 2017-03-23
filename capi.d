@@ -20,3 +20,18 @@ struct Point {
 }
 
 bool crypto_point_parse(const(ubyte)[] buffer, ref Point p);
+
+/**
+ * ECDSA parsing and verifying facilities.
+ */
+struct ECDSASig {
+	Uint256 r, s;
+}
+
+bool crypto_ecdsa_parse(const(ubyte)[] buffer, ref ECDSASig sig);
+bool crypto_ecdsa_verify(
+	const Context* ctx,
+	ECDSASig sig,
+	Point pubKey,
+	ubyte[32] msg,
+);
