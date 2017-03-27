@@ -85,12 +85,15 @@ public:
 		return i.serialize();
 	}
 	
+	static unserialize(ref const(ubyte)[] buffer) {
+		import crypto.uint256;
+		auto i = Uint256.unserializeInRange(buffer, prime());
+		return Element(i.getParts());
+	}
+	
 	static unserializeOrZero(ref const(ubyte)[] buffer) {
 		import crypto.uint256;
-		auto i = Uint256.unserialize(buffer);
-		
-		// If i is greater than the prime, we return 0.
-		i = Uint256.select(i.opCmp(prime()) >= 0, Uint256(0), i);
+		auto i = Uint256.unserializeInRangeOrZero(buffer, prime());
 		return Element(i.getParts());
 	}
 	
@@ -193,8 +196,12 @@ void testElement() {
 	static testSerialization(Element a) {
 		auto buf = a.serialize();
 		auto bufSlice = buf.ptr[0 .. buf.length];
-		auto b = Element.unserializeOrZero(bufSlice);
 		
+		auto b = Element.unserializeOrZero(bufSlice);
+		assert(a.opEquals(b), "serialization failed");
+		
+		bufSlice = buf.ptr[0 .. buf.length];
+		b = Element.unserialize(bufSlice);
 		assert(a.opEquals(b), "serialization failed");
 	}
 	
@@ -206,7 +213,32 @@ void testElement() {
 	testSerialization(beta);
 	testSerialization(negbeta);
 	
-	// Test invalid deserialization.
+	// Invalid serialization.
+	static testSerializationFail(ubyte[] buf) {
+		try {
+			Element.unserialize(buf);
+			assert(0, "unserialize should have thrown");
+		} catch(Exception e) {}
+		
+		try {
+			auto es = Element.unserializeOrZero(buf);
+			assert(0, "unserialize should have thrown");
+		} catch(Exception e) {}
+	}
+	
+	ubyte[33] buf;
+	testSerializationFail(buf.ptr[0 .. 0]);
+	testSerializationFail(buf.ptr[0 .. 31]);
+	
+	// Buffer advanced properly.
+	auto bufSlice = buf.ptr[0 .. 33];
+	Element.unserialize(bufSlice);
+	assert(
+		bufSlice.length == 1 && bufSlice.ptr is &buf[32],
+		"buffer did not advance as expected",
+	);
+	
+	// Test out of range deserialization.
 	auto s = Element.prime();
 	auto sbuf = s.serialize();
 	auto sSlice = sbuf.ptr[0 .. sbuf.length];

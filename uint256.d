@@ -141,6 +141,25 @@ public:
 		return Uint256(r);
 	}
 	
+	static unserializeInRange(ref const(ubyte)[] buffer, Uint256 max) {
+		auto i = unserialize(buffer);
+		
+		// If i is greater than the max, we throw.
+		if (i.opCmp(max) >= 0) {
+			// out of range.
+			throw new Exception();
+		}
+		
+		return i;
+	}
+	
+	static unserializeInRangeOrZero(ref const(ubyte)[] buffer, Uint256 max) {
+		auto i = unserialize(buffer);
+		
+		// If i is greater than the max, we return 0.
+		return Uint256.select(i.opCmp(max) >= 0, Uint256(0), i);
+	}
+	
 	static select(bool cond, Uint256 a, Uint256 b) {
 		auto maska = -ulong(cond);
 		auto maskb = ~maska;
@@ -202,9 +221,33 @@ void main() {
 	static testSerialization(Uint256 a) {
 		auto buf = a.serialize();
 		auto bufSlice = buf.ptr[0 .. buf.length];
-		auto b = Uint256.unserialize(bufSlice);
 		
+		auto b = Uint256.unserialize(bufSlice);
 		assert(a.opEquals(b), "serialization failed");
+		
+		auto zero = Uint256(0);
+		auto one = Uint256(1);
+		
+		auto amax = a.add(one);
+		if (!amax.opEquals(zero)) {
+			bufSlice = buf.ptr[0 .. buf.length];
+			b = Uint256.unserializeInRangeOrZero(bufSlice, amax);
+			assert(a.opEquals(b), "serialization failed");
+			
+			bufSlice = buf.ptr[0 .. buf.length];
+			b = Uint256.unserializeInRange(bufSlice, amax);
+			assert(a.opEquals(b), "serialization failed");
+		}
+		
+		bufSlice = buf.ptr[0 .. buf.length];
+		auto c = Uint256.unserializeInRangeOrZero(bufSlice, a);
+		assert(c.opEquals(zero), "Out of range did not triggered");
+		
+		try {
+			bufSlice = buf.ptr[0 .. buf.length];
+			auto d = Uint256.unserializeInRange(bufSlice, a);
+			assert(0, "Out of range did not throw");
+		} catch(Exception e) {}
 	}
 	
 	testSerialization(zero);
@@ -221,6 +264,37 @@ void main() {
 	);
 	
 	testSerialization(lambda);
+	
+	// Invalid serialization.
+	static testSerializationFail(ubyte[] buf) {
+		try {
+			Uint256.unserialize(buf);
+			assert(0, "unserialize should have thrown");
+		} catch(Exception e) {}
+		
+		auto max = Uint256(999);
+		try {
+			Uint256.unserializeInRange(buf, max);
+			assert(0, "unserialize should have thrown");
+		} catch(Exception e) {}
+		
+		try {
+			Uint256.unserializeInRangeOrZero(buf, max);
+			assert(0, "unserialize should have thrown");
+		} catch(Exception e) {}
+	}
+	
+	ubyte[33] buf;
+	testSerializationFail(buf.ptr[0 .. 0]);
+	testSerializationFail(buf.ptr[0 .. 31]);
+	
+	// Buffer advanced properly.
+	auto bufSlice = buf.ptr[0 .. 33];
+	Uint256.unserialize(bufSlice);
+	assert(
+		bufSlice.length == 1 && bufSlice.ptr is &buf[32],
+		"buffer did not advance as expected",
+	);
 	
 	printf("OK\n".ptr);
 }

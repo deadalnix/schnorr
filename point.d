@@ -17,6 +17,50 @@ public:
 	}
 	
 	// TODO: implicit cast to CartesianPoint.
+	static parse(const(ubyte)[] buf) {
+		if (buf.length == 0) {
+			throw new Exception();
+		}
+		
+		auto type = buf[0];
+		buf = buf[1 .. buf.length];
+		
+		bool odd;
+		
+		switch (type) {
+			case 0x02:
+				odd = false;
+				goto HandleCompressed;
+			
+			case 0x03:
+				odd = true;
+				goto HandleCompressed;
+			
+			HandleCompressed: {
+				if (buf.length != 32) {
+					break;
+				}
+				
+				auto x = Element.unserialize(buf);
+				auto cp = CartesianPoint(ComputeElement(x), odd);
+				return cp.normalize();
+			}
+			case 0x04: {
+				if (buf.length != 64) {
+					break;
+				}
+				
+				auto x = Element.unserialize(buf);
+				auto y = Element.unserialize(buf);
+				return Point(x, y);
+			}
+			default:
+				break;
+		}
+		
+		throw new Exception();
+	}
+	
 	static select(bool cond, Point a, Point b) {
 		return Point(
 			Element.select(cond, a.x, b.x),
@@ -65,12 +109,12 @@ public:
 		this.infinity = infinity;
 	}
 	
-	this(ComputeElement x, bool parity) {
+	this(ComputeElement x, bool odd) {
 		auto x2 = x.square();
 		auto x3 = x2.mul(x);
 		auto y2 = x3.add(ComputeElement(B));
 		y = y2.sqrt();
-		y = ComputeElement.select(y.isOdd() == parity, y, y.negate());
+		y = ComputeElement.select(y.isOdd() == odd, y, y.negate());
 		this(x, y, false);
 	}
 	
@@ -1004,5 +1048,160 @@ void main() {
 		false,
 	));
 	
+	// Point parsing
+	{
+		ubyte[65] sp;
+		sp[0] = 0x03;
+		
+		auto spPtr = cast(ulong*) &sp[1];
+		import sdc.intrinsics;
+		spPtr[0] = bswap(0xba5005bc23e32176);
+		spPtr[1] = bswap(0x18c9d31e4bd1f2f4);
+		spPtr[2] = bswap(0x6831195d453173e1);
+		spPtr[3] = bswap(0x8de5d3e1302c5b08);
+		
+		auto spBuf = sp.ptr[0 .. 33];
+		auto p = CartesianPoint(Point.parse(spBuf));
+		
+		auto expected = CartesianPoint(Point(
+			Element(
+				0xba5005bc23e32176,
+				0x18c9d31e4bd1f2f4,
+				0x6831195d453173e1,
+				0x8de5d3e1302c5b08,
+			),
+			Element(
+				0x058e3497480b5e5a,
+				0xbf8d8815313aa303,
+				0x63b2c138751a750b,
+				0xe8d130de3a52bb89,
+			),
+		));
+		
+		assert(p.opEquals(expected));
+		
+		// Wrong buffer size.
+		try {
+			spBuf = sp.ptr[0 .. 32];
+			Point.parse(spBuf);
+			assert(0, "This should have thrown");
+		} catch(Exception e) {}
+		
+		try {
+			spBuf = sp.ptr[0 .. 34];
+			Point.parse(spBuf);
+			assert(0, "This should have thrown");
+		} catch(Exception e) {}
+		
+		try {
+			spBuf = sp.ptr[0 .. 65];
+			Point.parse(spBuf);
+			assert(0, "This should have thrown");
+		} catch(Exception e) {}
+		
+		// Negate the point.
+		sp[0] = 0x02;
+		spBuf = sp.ptr[0 .. 33];
+		p = CartesianPoint(Point.parse(spBuf));
+		
+		assert(p.opEquals(expected.negate()));
+		
+		// Wrong buffer size.
+		try {
+			spBuf = sp.ptr[0 .. 32];
+			Point.parse(spBuf);
+			assert(0, "This should have thrown");
+		} catch(Exception e) {}
+		
+		try {
+			spBuf = sp.ptr[0 .. 34];
+			Point.parse(spBuf);
+			assert(0, "This should have thrown");
+		} catch(Exception e) {}
+		
+		try {
+			spBuf = sp.ptr[0 .. 65];
+			Point.parse(spBuf);
+			assert(0, "This should have thrown");
+		} catch(Exception e) {}
+		
+		// Uncompressed point.
+		sp[0] = 0x04;
+		spPtr[0] = bswap(0x37ea077049ff0b40);
+		spPtr[1] = bswap(0x7bf87e5c12fa4f21);
+		spPtr[2] = bswap(0x66abc36ade5d0187);
+		spPtr[3] = bswap(0x4562801601d2edf4);
+		spPtr[4] = bswap(0x60288e6bcf6cbb5f);
+		spPtr[5] = bswap(0x7d4d5ed1b493f13b);
+		spPtr[6] = bswap(0xc0d324a1544b5878);
+		spPtr[7] = bswap(0x99ca713549b01336);
+		
+		p = CartesianPoint(Point.parse(spBuf));
+		
+		expected = CartesianPoint(Point(
+			Element(
+				0x37ea077049ff0b40,
+				0x7bf87e5c12fa4f21,
+				0x66abc36ade5d0187,
+				0x4562801601d2edf4,
+			),
+			Element(
+				0x60288e6bcf6cbb5f,
+				0x7d4d5ed1b493f13b,
+				0xc0d324a1544b5878,
+				0x99ca713549b01336,
+			),
+		));
+		
+		assert(p.opEquals(expected));
+		
+		// Wrong buffer size.
+		try {
+			spBuf = sp.ptr[0 .. 33];
+			Point.parse(spBuf);
+			assert(0, "This should have thrown");
+		} catch(Exception e) {}
+		
+		try {
+			spBuf = sp.ptr[0 .. 64];
+			Point.parse(spBuf);
+			assert(0, "This should have thrown");
+		} catch(Exception e) {}
+		
+		try {
+			spBuf = sp.ptr[0 .. 66];
+			Point.parse(spBuf);
+			assert(0, "This should have thrown");
+		} catch(Exception e) {}
+		
+		// Wrong leading byte.
+		sp[0] = 0x00;
+		
+		try {
+			spBuf = sp.ptr[0 .. 33];
+			Point.parse(spBuf);
+			assert(0, "This should have thrown");
+		} catch(Exception e) {}
+		
+		try {
+			spBuf = sp.ptr[0 .. 65];
+			Point.parse(spBuf);
+			assert(0, "This should have thrown");
+		} catch(Exception e) {}
+	}
+	
 	printf("OK\n".ptr);
+}
+
+extern(C):
+
+bool crypto_point_parse(const(ubyte)[] buffer, ref Point p) {
+	try {
+		p = Point.parse(buffer);
+		return true;
+	} catch(Exception e) {
+		// FIXME: Use proper exception types.
+	}
+	
+	return false;
 }

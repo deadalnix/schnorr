@@ -117,12 +117,15 @@ public:
 		return i.serialize();
 	}
 	
+	static unserialize(ref const(ubyte)[] buffer) {
+		import crypto.uint256;
+		auto i = Uint256.unserializeInRange(buffer, order());
+		return Scalar(i.getParts());
+	}
+	
 	static unserializeOrZero(ref const(ubyte)[] buffer) {
 		import crypto.uint256;
-		auto i = Uint256.unserialize(buffer);
-		
-		// If i is greater than the group order, we return 0.
-		i = Uint256.select(i.opCmp(order()) >= 0, Uint256(0), i);
+		auto i = Uint256.unserializeInRangeOrZero(buffer, order());
 		return Scalar(i.getParts());
 	}
 	

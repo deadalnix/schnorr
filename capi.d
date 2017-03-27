@@ -2,7 +2,6 @@ module crypto.capi;
 
 extern(C):
 
-// FIXME: make this opaque when possible.
 struct Context;
 
 immutable(Context)* crypto_context_create(ubyte[32] nonce);
@@ -12,3 +11,12 @@ void crypto_context_destroy(const Context* c);
 struct Uint256 {
 	ulong[4] parts;
 }
+
+/**
+ * Parse EC points. Can handle compressed and uncompressed points.
+ */
+struct Point {
+	Uint256 x, y;
+}
+
+bool crypto_point_parse(const(ubyte)[] buffer, ref Point p);
