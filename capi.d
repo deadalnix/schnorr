@@ -31,7 +31,7 @@ struct ECDSASig {
 bool crypto_ecdsa_parse(const(ubyte)[] buffer, ref ECDSASig sig);
 bool crypto_ecdsa_verify(
 	const Context* ctx,
-	ECDSASig sig,
-	Point pubKey,
-	ubyte[32] msg,
+	const ECDSASig* sig,
+	const Point* pubKey,
+	const ubyte[32]* msg,
 );

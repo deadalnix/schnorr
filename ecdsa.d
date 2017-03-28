@@ -29,8 +29,8 @@ public:
 			throw new Exception();
 		}
 		
-		auto s = parseScalar(buffer);
 		auto r = parseScalar(buffer);
+		auto s = parseScalar(buffer);
 		
 		// Length are not consistent.
 		if (buffer.length != 0) {
@@ -45,14 +45,14 @@ public:
 	 * Verify the validity of an ECDSA signature.
 	 */
 	import crypto.doublegen, crypto.point;
-	bool verify(ref DoubleGen g, Point p, ubyte[32] m) const {
+	bool verify(ref DoubleGen g, Point p, ubyte[32] msg) const {
 		if (r.isZero() || s.isZero()) {
 			return false;
 		}
 		
-		auto mBuf = m.ptr[0 .. m.length];
-		auto sm = Scalar.unserializeOrZero(mBuf);
-		if (sm.isZero()) {
+		auto mBuf = msg.ptr[0 .. msg.length];
+		auto m = Scalar.unserializeOrZero(mBuf);
+		if (m.isZero()) {
 			return false;
 		}
 		
@@ -63,7 +63,7 @@ public:
 		assert(!xr.isZero(), "p > o so this should never be");
 		
 		auto sinv = s.inverse();
-		auto u1 = sinv.mul(sm);
+		auto u1 = sinv.mul(m);
 		auto u2 = sinv.mul(r);
 		
 		auto jpr = g.mul(u1, u2, CartesianPoint(p));
@@ -320,8 +320,34 @@ void main() {
 	sigPtr[8] = bswap(0xa1030e0d2a22e200);
 	
 	auto sigBuf = sig.ptr[0 .. 71];
-	ECDSASig.parse(sigBuf);
+	auto parsedSig = ECDSASig.parse(sigBuf);
 	
+	import crypto.element;
+	auto pubKey = Point(
+		Element(
+			0xba5005bc23e32176,
+			0x18c9d31e4bd1f2f4,
+			0x6831195d453173e1,
+			0x8de5d3e1302c5b08,
+		),
+		Element(
+			0x058e3497480b5e5a,
+			0xbf8d8815313aa303,
+			0x63b2c138751a750b,
+			0xe8d130de3a52bb89,
+		),
+	);
+	
+	ubyte[32] msg;
+	auto msgPtr = cast(ulong*) msg.ptr;
+	msgPtr[0] = bswap(0x209193f477fb20e7);
+	msgPtr[1] = bswap(0xab78bcb149d8be43);
+	msgPtr[2] = bswap(0x3865afb03461acd7);
+	msgPtr[3] = bswap(0xad6d4aa64c9044ba);
+	
+	assert(parsedSig.verify(dblgen, pubKey, msg));
+	
+	// A second deserialization to check for 31 bytes integers.
 	sigPtr[0] = bswap(0x3044021f573e8316);
 	sigPtr[1] = bswap(0xa07d2e14e2f1ce40);
 	sigPtr[2] = bswap(0x50c093b772c6c7e7);
@@ -352,9 +378,9 @@ bool crypto_ecdsa_parse(const(ubyte)[] buffer, ref ECDSASig sig) {
 import crypto.context, crypto.point;
 bool crypto_ecdsa_verify(
 	const Context* ctx,
-	ECDSASig sig,
-	Point pubKey,
-	ubyte[32] msg,
+	const ECDSASig* sig,
+	const Point* pubKey,
+	const ubyte[32]* msg,
 ) {
-	return sig.verify(ctx.dblg, pubKey, msg);
+	return sig.verify(ctx.dblg, *pubKey, *msg);
 }
