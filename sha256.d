@@ -267,7 +267,7 @@ void Round(
 	h = t1 + t2;
 }
 
-void main() {
+unittest {
 	static H(uint a, uint b, uint c, uint d, uint e, uint f, uint g, uint h) {
 		ubyte[32] hash;
 		auto ptr = cast(uint*) hash.ptr;
@@ -347,5 +347,6 @@ void main() {
 	
 	testSHA("This is exactly 64 bytes long, not counting the terminating byte", h);
 	
+	import core.stdc.stdio;
 	printf("OK\n".ptr);
 }

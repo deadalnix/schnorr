@@ -112,6 +112,7 @@ public:
 	
 private:
 	void dump() const {
+		import core.stdc.stdio;
 		printf(
 			"%.16lx %.16lx %.16lx %.16lx".ptr,
 			parts[3],
@@ -482,6 +483,7 @@ public:
 	
 private:
 	void dump() const {
+		import core.stdc.stdio;
 		printf(
 			"%.16lx %.16lx %.16lx %.16lx %.16lx (%d)".ptr,
 			parts[4],
@@ -1053,9 +1055,10 @@ void testComputeElement() {
 	assert(one.opEquals(beta6), "beta2^3 == 1");
 }
 
-void main() {
+unittest {
 	testElement();
 	testComputeElement();
 	
+	import core.stdc.stdio;
 	printf("OK\n".ptr);
 }

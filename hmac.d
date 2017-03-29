@@ -49,7 +49,7 @@ public:
 	}
 }
 
-void main() {
+unittest {
 	static H(uint a, uint b, uint c, uint d, uint e, uint f, uint g, uint h) {
 		ubyte[32] hash;
 		auto ptr = cast(uint*) hash.ptr;
@@ -163,5 +163,6 @@ void main() {
 		h,
 	);
 	
+	import core.stdc.stdio;
 	printf("OK\n".ptr);
 }

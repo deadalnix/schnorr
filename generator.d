@@ -157,7 +157,7 @@ private:
 	}
 }
 
-void main() {
+unittest {
 	ubyte[32] seed;
 	
 	import crypto.point;
@@ -217,5 +217,6 @@ void main() {
 		"-Lambda^2*G == (Beta^2*G.x, -G.y)",
 	);
 	
+	import core.stdc.stdio;
 	printf("OK\n".ptr);
 }

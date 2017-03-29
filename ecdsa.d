@@ -234,12 +234,13 @@ private:
 	}
 	
 	void dump() const {
+		import core.stdc.stdio;
 		printf("r: ".ptr); r.dump(); printf("\n".ptr);
 		printf("s: ".ptr); s.dump(); printf("\n".ptr);
 	}
 }
 
-void main() {
+unittest {
 	ubyte[32] m, nonce;
 	
 	import crypto.scalar;
@@ -361,6 +362,7 @@ void main() {
 	sigBuf = sig.ptr[0 .. 70];
 	ECDSASig.parse(sigBuf);
 	
+	import core.stdc.stdio;
 	printf("OK\n".ptr);
 }
 

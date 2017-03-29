@@ -384,7 +384,7 @@ private:
 	}
 }
 
-void main() {
+unittest {
 	test!2();
 	test!3();
 	test!4();
@@ -393,6 +393,7 @@ void main() {
 	test!7();
 	test!8();
 	
+	import core.stdc.stdio;
 	printf("OK\n".ptr);
 }
 

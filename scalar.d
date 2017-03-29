@@ -144,6 +144,7 @@ public:
 	
 private:
 	void dump() const {
+		import core.stdc.stdio;
 		printf(
 			"%.16lx %.16lx %.16lx %.16lx".ptr,
 			parts[3],
@@ -634,7 +635,7 @@ enum Lambda = Scalar(
 	0xdf02967c1b23bd72,
 );
 
-void main() {
+unittest {
 	static testAdd(Scalar a, Scalar b, Scalar r) {
 		assert(r.opEquals(a.add(b)), "a + b == r");
 		assert(r.opEquals(b.add(a)), "b + a == r");
@@ -765,5 +766,6 @@ void main() {
 	
 	assert(ss.opEquals(zero), "invalid unserialization yield zero");
 	
+	import core.stdc.stdio;
 	printf("OK\n".ptr);
 }

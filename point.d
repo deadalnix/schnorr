@@ -694,7 +694,7 @@ private:
 	}
 }
 
-void main() {
+unittest {
 	import crypto.element;
 	static testConstruct(ComputeElement x, ComputeElement y) {
 		auto p = CartesianPoint(x, y, false);
@@ -1190,6 +1190,7 @@ void main() {
 		} catch(Exception e) {}
 	}
 	
+	import core.stdc.stdio;
 	printf("OK\n".ptr);
 }
 

@@ -11,8 +11,8 @@ private:
 public:
 	import crypto.point;
 	this(Point p, ubyte[32] nonce) {
-		g = Generator(p, nonce);
-		dblg = DoubleGen(p);
+		g.__ctor(p, nonce);
+		dblg.__ctor(p);
 	}
 }
 

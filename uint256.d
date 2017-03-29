@@ -174,7 +174,7 @@ public:
 	}
 }
 
-void main() {
+unittest {
 	static testAdd(Uint256 a, Uint256 b, Uint256 r) {
 		assert(r.opEquals(a.add(b)), "a + b == r");
 		assert(r.opEquals(b.add(a)), "b + a == r");
@@ -296,5 +296,6 @@ void main() {
 		"buffer did not advance as expected",
 	);
 	
+	import core.stdc.stdio;
 	printf("OK\n".ptr);
 }

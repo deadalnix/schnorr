@@ -53,7 +53,7 @@ public:
 	}
 }
 
-void main() {
+unittest {
 	import crypto.point;
 	auto g = CartesianPoint(Point.getG());
 	auto gen = DoubleGen(Point.getG());
@@ -137,5 +137,6 @@ void main() {
 		"Lambda*G + 1*BetaG == 2*(Beta*G.x, G.y)",
 	);
 	
+	import core.stdc.stdio;
 	printf("OK\n".ptr);
 }
