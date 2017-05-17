@@ -722,8 +722,10 @@ private:
 		 */
 		
 		// Compute various (2 ^ n - 1) powers of e.
-		auto e02 = e.mul(e.square());
-		auto e03 = e.mul(e02.square());
+		auto u02 = e.square();
+		auto e02 = u02.mul(e);
+		auto u05 = e02.mul(u02);
+		auto e03 = u05.mul(u02);
 		
 		auto e06 = e03.squaren!3();
 		e06 = e06.mul(e03);
@@ -761,18 +763,13 @@ private:
 		r = r.squaren!23();
 		r = r.mul(e22);
 		
-		// XXX: Computing e ^ 0b101 and would save some mul here,
-		// 00001
-		r = r.squaren!5();
-		r = r.mul(e);
+		// 0000101
+		r = r.squaren!7();
+		r = r.mul(u05);
 		
-		// 011
+		// 101
 		r = r.squaren!3();
-		r = r.mul(e02);
-		
-		// 01
-		r = r.squaren!2();
-		r = r.mul(e);
+		r = r.mul(u05);
 		
 		return r;
 	}
@@ -789,7 +786,8 @@ private:
 		
 		// Compute various (2 ^ n - 1) powers of e.
 		auto e02 = e.mul(e.square());
-		auto e03 = e.mul(e02.square());
+		auto u06 = e02.square();
+		auto e03 = u06.mul(e);
 		
 		auto e06 = e03.squaren!3();
 		e06 = e06.mul(e03);
