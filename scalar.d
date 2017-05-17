@@ -438,38 +438,42 @@ private:
 		 *
 		 * Then we shift the exponent left by squaring, and add ones using
 		 * the precomputed powers using a ^ x * a ^ y = a ^ (x + y).
+		 *
+		 * Compute various (2 ^ n - 1) powers of a as aNNN .
+		 * Compute a ^ m as uMMM .
 		 */
+		auto u02 = a.square();
+		auto a02 = u02.mul(a);
+		auto u05 = a02.mul(u02);
+		auto a03 = u05.mul(u02);
+		auto u09 = a03.mul(u02);
+		auto u11 = u09.mul(u02);
+		auto u13 = u11.mul(u02);
 		
-		// XXX: Computing a ^ 0b101 and a ^ 0b1001 would save some mul.
-		// Compute various (2 ^ n - 1) powers of a.
-		auto a02 = a.mul(a.square());
-		auto a03 = a.mul(a02.square());
-		auto a04 = a.mul(a03.square());
+		auto u52 = u13.squaren!2();
+		auto a06 = u52.mul(u11);
 		
-		auto a06 = a04.squaren!2();
-		a06 = a06.mul(a02);
+		auto a08 = a06.squaren!2();
+		a08 = a08.mul(a02);
 		
-		auto a07 = a.mul(a06.square());
-		auto a08 = a.mul(a07.square());
+		auto a14 = a08.squaren!6();
+		a14 = a14.mul(a06);
 		
-		auto a15 = a08.squaren!7();
-		a15 = a15.mul(a07);
+		auto a28 = a14.squaren!14();
+		a28 = a28.mul(a14);
 		
-		auto a30 = a15.squaren!15();
-		a30 = a30.mul(a15);
+		auto a56 = a28.squaren!28();
+		a56 = a56.mul(a28);
 		
-		auto a60 = a30.squaren!30();
-		a60 = a60.mul(a30);
+		auto a112 = a56.squaren!56();
+		a112 = a112.mul(a56);
 		
-		auto a120 = a60.squaren!60();
-		a120 = a120.mul(a60);
+		auto a126 = a112.squaren!14();
+		a126 = a126.mul(a14);
 		
-		auto a127 = a120.squaren!7();
-		a127 = a127.mul(a07);
-		
-		// The 127 heading ones of the base and one 0.
+		// The 126 heading ones of the base followed by 10.
 		// 0xFFFFFFFFFFFFFFFF, 0xFFFFFFFFFFFFFFFE
-		auto r = a127;
+		auto r = a126;
 		
 		/**
 		 * Next digit is 0xBAAEDCE6AF48A03B
@@ -480,33 +484,25 @@ private:
 		 * 0xAF48 = 10101111 01001000
 		 * 0xA03B = 10100000 00111011
 		 */
-		// 01
-		r = r.squaren!2();
-		r = r.mul(a);
-		
-		// 0111
-		r = r.squaren!4();
-		r = r.mul(a03);
-		
-		// 01
-		r = r.squaren!2();
-		r = r.mul(a);
-		
-		// 01
-		r = r.squaren!2();
-		r = r.mul(a);
-		
-		// 01
-		r = r.squaren!2();
-		r = r.mul(a);
-		
-		// 0111
-		r = r.squaren!4();
-		r = r.mul(a03);
-		
-		// 011
+		// 101
 		r = r.squaren!3();
-		r = r.mul(a02);
+		r = r.mul(u05);
+		
+		// 0111
+		r = r.squaren!4();
+		r = r.mul(a03);
+		
+		// 0101
+		r = r.squaren!4();
+		r = r.mul(u05);
+		
+		// 01011
+		r = r.squaren!5();
+		r = r.mul(u11);
+		
+		// 1011
+		r = r.squaren!4();
+		r = r.mul(u11);
 		
 		// 0111
 		r = r.squaren!4();
@@ -516,37 +512,25 @@ private:
 		r = r.squaren!5();
 		r = r.mul(a03);
 		
-		// 0011
+		// 001101
+		r = r.squaren!6();
+		r = r.mul(u13);
+		
+		// 0101
 		r = r.squaren!4();
-		r = r.mul(a02);
+		r = r.mul(u05);
 		
-		// 01
-		r = r.squaren!2();
-		r = r.mul(a);
-		
-		// 01
-		r = r.squaren!2();
-		r = r.mul(a);
-		
-		// 01111
-		r = r.squaren!5();
-		r = r.mul(a04);
-		
-		// 01
-		r = r.squaren!2();
-		r = r.mul(a);
-		
-		// 001
+		// 111
 		r = r.squaren!3();
-		r = r.mul(a);
+		r = r.mul(a03);
 		
-		// 0001
-		r = r.squaren!4();
-		r = r.mul(a);
+		// 01001
+		r = r.squaren!5();
+		r = r.mul(u09);
 		
-		// 01
-		r = r.squaren!2();
-		r = r.mul(a);
+		// 000101
+		r = r.squaren!6();
+		r = r.mul(u05);
 		
 		// 0000000111
 		r = r.squaren!10();
@@ -569,49 +553,33 @@ private:
 		r = r.squaren!9();
 		r = r.mul(a08);
 		
-		// 01
-		r = r.squaren!2();
-		r = r.mul(a);
-		
-		// 001
-		r = r.squaren!3();
-		r = r.mul(a);
-		
-		// 001
-		r = r.squaren!3();
-		r = r.mul(a);
-		
-		// 01111
+		// 01001
 		r = r.squaren!5();
-		r = r.mul(a04);
+		r = r.mul(u09);
 		
-		// 01
-		r = r.squaren!2();
-		r = r.mul(a);
+		// 001011
+		r = r.squaren!6();
+		r = r.mul(u11);
+		
+		// 1101
+		r = r.squaren!4();
+		r = r.mul(u13);
 		
 		// 00011
 		r = r.squaren!5();
 		r = r.mul(a02);
 		
-		// 0011
+		// 001101
+		r = r.squaren!6();
+		r = r.mul(u13);
+		
+		// 0000001101
+		r = r.squaren!10();
+		r = r.mul(u13);
+		
+		// 1001
 		r = r.squaren!4();
-		r = r.mul(a02);
-		
-		// 01
-		r = r.squaren!2();
-		r = r.mul(a);
-		
-		// 00000011
-		r = r.squaren!8();
-		r = r.mul(a02);
-		
-		// 011
-		r = r.squaren!3();
-		r = r.mul(a02);
-		
-		// 001
-		r = r.squaren!3();
-		r = r.mul(a);
+		r = r.mul(u09);
 		
 		// 000001
 		r = r.squaren!6();
