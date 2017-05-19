@@ -112,6 +112,26 @@ public:
 		return bigger - smaller;
 	}
 	
+	auto isOdd() const {
+		return !isEven();
+	}
+	
+	auto isEven() const {
+		return !(parts[0] & 0x01);
+	}
+	
+	auto shrn(uint N)() const {
+		static assert(N >= 0 && N < 64, "N must be between 1 and 64");
+		
+		ulong[4] r;
+		foreach (i; 0 .. 3) {
+			r[i] = (parts[i] >> N) | (parts[i + 1] << (64 - N));
+		}
+		
+		r[3] = parts[3] >> N;
+		return Uint256(r);
+	}
+	
 	auto serialize() const {
 		ubyte[32] s;
 		
@@ -171,6 +191,17 @@ public:
 		}
 		
 		return Uint256(r);
+	}
+	
+	void dump() const {
+		import core.stdc.stdio;
+		printf(
+			"%.16lx %.16lx %.16lx %.16lx".ptr,
+			parts[3],
+			parts[2],
+			parts[1],
+			parts[0],
+		);
 	}
 }
 
@@ -295,6 +326,29 @@ unittest {
 		bufSlice.length == 1 && bufSlice.ptr is &buf[32],
 		"buffer did not advance as expected",
 	);
+	
+	// Shift
+	static testShift(uint N)(Uint256 a, Uint256 r) {
+		assert(r.opEquals(a.shrn!N()), "a >> N == r");
+	}
+	
+	testShift!1(one, zero);
+	testShift!1(two, one);
+	testShift!2(two, zero);
+	testShift!4(lambda, Uint256(
+		0x05363ad4cc05c30e,
+		0x0a5261c028812645,
+		0xa122e22ea2081667,
+		0x8df02967c1b23bd7,
+	));
+	
+	// Odd, Even
+	assert(zero.isEven());
+	assert(!zero.isOdd());
+	assert(one.isOdd());
+	assert(!one.isEven());
+	assert(lambda.isEven());
+	assert(!lambda.isOdd());
 	
 	import core.stdc.stdio;
 	printf("OK\n".ptr);
