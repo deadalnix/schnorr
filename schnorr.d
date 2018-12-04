@@ -1,4 +1,4 @@
-import crypto.schnorr;
+module crypto.schnorr;
 
 struct SchnorrSig {
 private:
