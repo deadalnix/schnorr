@@ -144,7 +144,7 @@ enum Beta = Element(
 	0xc1396c28719501ee,
 );
 
-void testElement() {
+unittest element {
 	static testNeg(Element n, Element negn) {
 		assert(n.opEquals(negn.negate()), "n = -negn");
 		assert(negn.opEquals(n.negate()), "-n = negn");
@@ -279,7 +279,7 @@ private:
 	 * speedup calculations.
 	 */
 	enum Complement = 0x1000003D1;
-
+	
 	this(ulong[4] p, uint carryCount) {
 		parts[0] = p[0] & Mask;
 		parts[1] = (p[0] >> 52 | p[1] << 12) & Mask;
@@ -296,6 +296,10 @@ private:
 	}
 	
 public:
+	this(ComputeElement e) {
+		this(e.parts, e.carryCount);
+	}
+	
 	this(Element e) {
 		this(e.parts, 0);
 	}
@@ -450,7 +454,18 @@ public:
 	}
 	
 	auto sqrt() const {
-		return sqrtImpl(this);
+		auto e = ComputeElement(this);
+		if (!sqrtImpl(e)) {
+			// This number has no square root, throw.
+			throw new Exception(/* "e has no square root" */);
+		}
+		
+		return e;
+	}
+	
+	auto isQuadraticResidue() const {
+		auto e = ComputeElement(this);
+		return sqrtImpl(e);
 	}
 	
 	// FIXME: For some reason, auto is detected as const by SDC.
@@ -774,7 +789,7 @@ private:
 		return r;
 	}
 	
-	static sqrtImpl(ComputeElement e) {
+	static sqrtImpl(ref ComputeElement e) {
 		/**
 		 * Because p = 3 mod 4, we know Skank's algorithm simplify
 		 * to sqrt(e) = e ^ ((p + 1)/4), if it exists at all.
@@ -831,18 +846,17 @@ private:
 		
 		// 00
 		r = r.squaren!2();
+
+		// We make sure to update e with the computed result.
+		scope(success) e = r;
 		
 		// Not all number have a square root. We check if we actually computed
-		// the square root by squaring it and chcking against e. If not, throw.
-		if (!e.opEquals(r.square())) {
-			throw new Exception(/* "e has no square root" */);
-		}
-		
-		return r;
+		// the square root by squaring it and chcking against e.
+		return e.opEquals(r.square());
 	}
 }
 
-void testComputeElement() {
+unittest compute_element {
 	static testAdd(ComputeElement a, ComputeElement b, ComputeElement r) {
 		assert(r.opEquals(a.add(b)), "a + b == r");
 		assert(r.opEquals(b.add(a)), "b + a == r");
@@ -866,6 +880,8 @@ void testComputeElement() {
 	
 	assert(zero.opEquals(zero.square()), "0^2 == 0");
 	assert(zero.isEven(), "0 is even");
+	assert(!zero.isOdd(), "0 is not odd");
+	assert(zero.isQuadraticResidue(), "0 is a quadratic residue");
 	
 	auto one = ComputeElement(1);
 	testAdd(zero, one, one);
@@ -873,7 +889,9 @@ void testComputeElement() {
 	testMul(one, one, one);
 	
 	assert(one.opEquals(one.square()), "1^2 == 1");
+	assert(!one.isEven(), "1 is not even");
 	assert(one.isOdd(), "1 is odd");
+	assert(one.isQuadraticResidue(), "1 is a quadratic residue");
 	
 	auto two = ComputeElement(2);
 	testAdd(one, one, two);
@@ -881,10 +899,15 @@ void testComputeElement() {
 	testMul(zero, two, zero);
 	testMul(one, two, two);
 	
+	assert(two.isEven(), "2 is even");
+	assert(!two.isOdd(), "2 is not odd");
+	assert(two.isQuadraticResidue(), "2 is a quadratic residue");
+	
 	auto four = ComputeElement(4);
 	assert(four.opEquals(two.square()), "2^2 == 4");
-	assert(two.isEven(), "2 is even");
 	assert(four.isEven(), "4 is even");
+	assert(!four.isOdd(), "4 is not odd");
+	assert(four.isQuadraticResidue(), "4 is a quadratic residue");
 	
 	auto negone = ComputeElement(Element(
 		0xFFFFFFFFFFFFFFFF,
@@ -900,6 +923,8 @@ void testComputeElement() {
 	
 	assert(one.opEquals(negone.square()), "(-1)^2 == 1");
 	assert(negone.isEven(), "-1 is even");
+	assert(!negone.isOdd(), "-1 is not odd");
+	assert(!negone.isQuadraticResidue(), "-1 is not a quadratic residue");
 	
 	auto negtwo = ComputeElement(Element(
 		0xFFFFFFFFFFFFFFFF,
@@ -913,7 +938,11 @@ void testComputeElement() {
 	testNeg(two, negtwo);
 	testMul(negone, two, negtwo);
 	testMul(negone, negtwo, two);
+	
+	assert(four.opEquals(negtwo.square()), "(-2)^2 == 4");
+	assert(!negtwo.isEven(), "-2 is not even");
 	assert(negtwo.isOdd(), "-2 is odd");
+	assert(!negtwo.isQuadraticResidue(), "-2 is not a quadratic residue");
 	
 	auto p = ComputeElement.prime();
 	
@@ -943,6 +972,7 @@ void testComputeElement() {
 		
 		assert(negone.opEquals(r));
 		assert(r.isEven(), "-1 is even");
+		assert(!r.isOdd(), "-1 is not odd");
 		
 		return r;
 	}
@@ -966,6 +996,19 @@ void testComputeElement() {
 		0x9982b148178f639f,
 	));
 	
+	assert(!n.isEven(), "n is not even");
+	assert(n.isOdd(), "n is odd");
+	assert(!n.isQuadraticResidue(), "n is not a quadratic residue");
+	
+	auto negn = n.negate();
+	testAdd(n, negn, zero);
+	testNeg(n, negn);
+	testMul(n, negone, negn);
+	
+	assert(negn.isEven(), "-n is even");
+	assert(!negn.isOdd(), "-n is not odd");
+	assert(negn.isQuadraticResidue(), "-n is a quadratic residue");
+	
 	auto en2 = Element(
 		0x251763d423a01613,
 		0x32ec3fd6bb58cb93,
@@ -975,17 +1018,12 @@ void testComputeElement() {
 	
 	auto n2 = ComputeElement(en2);
 	
-	auto negn = n.negate();
-	testAdd(n, negn, zero);
-	testNeg(n, negn);
-	testMul(n, negone, negn);
+	assert(n2.isEven(), "n^2 is even");
+	assert(!n2.isOdd(), "n^2 is not odd");
+	assert(n2.isQuadraticResidue(), "n^2 is a quadratic residue");
 	
 	auto nsqr = n.square();
 	assert(nsqr.opEquals(n2), "n^2 == n2");
-	
-	assert(n.isOdd(), "n is odd");
-	assert(negn.isEven(), "-n is even");
-	assert(n2.isEven(), "n^2 is even");
 	
 	auto sqrt2 = ComputeElement(Element(
 		0x210c790573632359,
@@ -995,6 +1033,9 @@ void testComputeElement() {
 	));
 	
 	assert(two.opEquals(sqrt2.square()), "sqrt(2)^2 == 2");
+	assert(!sqrt2.isEven(), "sqrt(2) is not even");
+	assert(sqrt2.isOdd(), "sqrt(2) is odd");
+	assert(sqrt2.isQuadraticResidue(), "sqrt(2) is a quadratic residue");
 	
 	auto qdrt2 = ComputeElement(Element(
 		0xf7a0537b4e1a702a,
@@ -1006,8 +1047,9 @@ void testComputeElement() {
 	assert(sqrt2.opEquals(qdrt2.square()), "qdrt(2)^2 == sqrt(2)");
 	assert(two.opEquals(qdrt2.squaren!2()), "qdrt(2)^2^2 == 2");
 	
-	assert(sqrt2.isOdd(), "sqrt2 is odd");
-	assert(qdrt2.isOdd(), "qdrt2 is odd");
+	assert(!qdrt2.isEven(), "qdrt(2) is not even");
+	assert(qdrt2.isOdd(), "qdrt(2) is odd");
+	assert(qdrt2.isQuadraticResidue(), "qdrt(2) is a quadratic residue");
 	
 	// Normalization.
 	assert(en2.opEquals(nsqr.normalize()));
@@ -1051,12 +1093,4 @@ void testComputeElement() {
 	
 	assert(one.opEquals(beta3), "beta^3 == 1");
 	assert(one.opEquals(beta6), "beta2^3 == 1");
-}
-
-unittest {
-	testElement();
-	testComputeElement();
-	
-	import core.stdc.stdio;
-	printf("OK\n".ptr);
 }
