@@ -17,7 +17,7 @@ public:
 	}
 	
 	// TODO: implicit cast to CartesianPoint.
-	static parse(const(ubyte)[] buf) {
+	static parse(ref const(ubyte)[] buf) {
 		if (buf.length == 0) {
 			throw new Exception();
 		}
@@ -71,10 +71,10 @@ public:
 		return s;
 	}
 	
-	auto serializeCompact() const {
+	auto serializeCompressed() const {
 		ubyte[33] s;
 		
-		s[0] = ubyte(y.isOdd()) << 1;
+		s[0] = 0x02 | y.isOdd();
 		
 		auto xcoord = (cast(ubyte[32]*) &s[1]);
 		*xcoord = x.serialize();
@@ -715,7 +715,7 @@ private:
 	}
 }
 
-unittest {
+unittest arithmetic {
 	import crypto.element;
 	static testConstruct(ComputeElement x, ComputeElement y) {
 		auto p = CartesianPoint(x, y, false);
@@ -1068,151 +1068,150 @@ unittest {
 		)),
 		false,
 	));
-	
+}
+
+unittest parsing {
 	// Point parsing
-	{
-		ubyte[65] sp;
-		sp[0] = 0x03;
-		
-		auto spPtr = cast(ulong*) &sp[1];
-		import sdc.intrinsics;
-		spPtr[0] = bswap(0xba5005bc23e32176);
-		spPtr[1] = bswap(0x18c9d31e4bd1f2f4);
-		spPtr[2] = bswap(0x6831195d453173e1);
-		spPtr[3] = bswap(0x8de5d3e1302c5b08);
-		
-		auto spBuf = sp.ptr[0 .. 33];
-		auto p = CartesianPoint(Point.parse(spBuf));
-		
-		auto expected = CartesianPoint(Point(
-			Element(
-				0xba5005bc23e32176,
-				0x18c9d31e4bd1f2f4,
-				0x6831195d453173e1,
-				0x8de5d3e1302c5b08,
-			),
-			Element(
-				0x058e3497480b5e5a,
-				0xbf8d8815313aa303,
-				0x63b2c138751a750b,
-				0xe8d130de3a52bb89,
-			),
-		));
-		
-		assert(p.opEquals(expected));
-		
-		// Wrong buffer size.
-		try {
-			spBuf = sp.ptr[0 .. 32];
-			Point.parse(spBuf);
-			assert(0, "This should have thrown");
-		} catch(Exception e) {}
-		
-		try {
-			spBuf = sp.ptr[0 .. 34];
-			Point.parse(spBuf);
-			assert(0, "This should have thrown");
-		} catch(Exception e) {}
-		
-		try {
-			spBuf = sp.ptr[0 .. 65];
-			Point.parse(spBuf);
-			assert(0, "This should have thrown");
-		} catch(Exception e) {}
-		
-		// Negate the point.
-		sp[0] = 0x02;
-		spBuf = sp.ptr[0 .. 33];
-		p = CartesianPoint(Point.parse(spBuf));
-		
-		assert(p.opEquals(expected.negate()));
-		
-		// Wrong buffer size.
-		try {
-			spBuf = sp.ptr[0 .. 32];
-			Point.parse(spBuf);
-			assert(0, "This should have thrown");
-		} catch(Exception e) {}
-		
-		try {
-			spBuf = sp.ptr[0 .. 34];
-			Point.parse(spBuf);
-			assert(0, "This should have thrown");
-		} catch(Exception e) {}
-		
-		try {
-			spBuf = sp.ptr[0 .. 65];
-			Point.parse(spBuf);
-			assert(0, "This should have thrown");
-		} catch(Exception e) {}
-		
-		// Uncompressed point.
-		sp[0] = 0x04;
-		spPtr[0] = bswap(0x37ea077049ff0b40);
-		spPtr[1] = bswap(0x7bf87e5c12fa4f21);
-		spPtr[2] = bswap(0x66abc36ade5d0187);
-		spPtr[3] = bswap(0x4562801601d2edf4);
-		spPtr[4] = bswap(0x60288e6bcf6cbb5f);
-		spPtr[5] = bswap(0x7d4d5ed1b493f13b);
-		spPtr[6] = bswap(0xc0d324a1544b5878);
-		spPtr[7] = bswap(0x99ca713549b01336);
-		
-		p = CartesianPoint(Point.parse(spBuf));
-		
-		expected = CartesianPoint(Point(
-			Element(
-				0x37ea077049ff0b40,
-				0x7bf87e5c12fa4f21,
-				0x66abc36ade5d0187,
-				0x4562801601d2edf4,
-			),
-			Element(
-				0x60288e6bcf6cbb5f,
-				0x7d4d5ed1b493f13b,
-				0xc0d324a1544b5878,
-				0x99ca713549b01336,
-			),
-		));
-		
-		assert(p.opEquals(expected));
-		
-		// Wrong buffer size.
-		try {
-			spBuf = sp.ptr[0 .. 33];
-			Point.parse(spBuf);
-			assert(0, "This should have thrown");
-		} catch(Exception e) {}
-		
-		try {
-			spBuf = sp.ptr[0 .. 64];
-			Point.parse(spBuf);
-			assert(0, "This should have thrown");
-		} catch(Exception e) {}
-		
-		try {
-			spBuf = sp.ptr[0 .. 66];
-			Point.parse(spBuf);
-			assert(0, "This should have thrown");
-		} catch(Exception e) {}
-		
-		// Wrong leading byte.
-		sp[0] = 0x00;
-		
-		try {
-			spBuf = sp.ptr[0 .. 33];
-			Point.parse(spBuf);
-			assert(0, "This should have thrown");
-		} catch(Exception e) {}
-		
-		try {
-			spBuf = sp.ptr[0 .. 65];
-			Point.parse(spBuf);
-			assert(0, "This should have thrown");
-		} catch(Exception e) {}
-	}
+	ubyte[65] sp;
+	sp[0] = 0x03;
 	
-	import core.stdc.stdio;
-	printf("OK\n".ptr);
+	auto spPtr = cast(ulong*) &sp[1];
+	import sdc.intrinsics;
+	spPtr[0] = bswap(0xba5005bc23e32176);
+	spPtr[1] = bswap(0x18c9d31e4bd1f2f4);
+	spPtr[2] = bswap(0x6831195d453173e1);
+	spPtr[3] = bswap(0x8de5d3e1302c5b08);
+	
+	auto spBuf = sp[0 .. 33];
+	auto p = CartesianPoint(Point.parse(spBuf));
+	
+	import crypto.element;
+	auto expected = CartesianPoint(Point(
+		Element(
+			0xba5005bc23e32176,
+			0x18c9d31e4bd1f2f4,
+			0x6831195d453173e1,
+			0x8de5d3e1302c5b08,
+		),
+		Element(
+			0x058e3497480b5e5a,
+			0xbf8d8815313aa303,
+			0x63b2c138751a750b,
+			0xe8d130de3a52bb89,
+		),
+	));
+	
+	assert(p.opEquals(expected));
+	
+	// Wrong buffer size.
+	try {
+		spBuf = sp[0 .. 32];
+		Point.parse(spBuf);
+		assert(0, "This should have thrown");
+	} catch(Exception e) {}
+	
+	try {
+		spBuf = sp[0 .. 34];
+		Point.parse(spBuf);
+		assert(0, "This should have thrown");
+	} catch(Exception e) {}
+	
+	try {
+		spBuf = sp[0 .. 65];
+		Point.parse(spBuf);
+		assert(0, "This should have thrown");
+	} catch(Exception e) {}
+	
+	// Negate the point.
+	sp[0] = 0x02;
+	spBuf = sp[0 .. 33];
+	p = CartesianPoint(Point.parse(spBuf));
+	
+	assert(p.opEquals(expected.negate()));
+	
+	// Wrong buffer size.
+	try {
+		spBuf = sp[0 .. 32];
+		Point.parse(spBuf);
+		assert(0, "This should have thrown");
+	} catch(Exception e) {}
+	
+	try {
+		spBuf = sp[0 .. 34];
+		Point.parse(spBuf);
+		assert(0, "This should have thrown");
+	} catch(Exception e) {}
+	
+	try {
+		spBuf = sp[0 .. 65];
+		Point.parse(spBuf);
+		assert(0, "This should have thrown");
+	} catch(Exception e) {}
+	
+	// Uncompressed point.
+	sp[0] = 0x04;
+	spPtr[0] = bswap(0x37ea077049ff0b40);
+	spPtr[1] = bswap(0x7bf87e5c12fa4f21);
+	spPtr[2] = bswap(0x66abc36ade5d0187);
+	spPtr[3] = bswap(0x4562801601d2edf4);
+	spPtr[4] = bswap(0x60288e6bcf6cbb5f);
+	spPtr[5] = bswap(0x7d4d5ed1b493f13b);
+	spPtr[6] = bswap(0xc0d324a1544b5878);
+	spPtr[7] = bswap(0x99ca713549b01336);
+	
+	spBuf = sp[0 .. 65];
+	p = CartesianPoint(Point.parse(spBuf));
+	
+	expected = CartesianPoint(Point(
+		Element(
+			0x37ea077049ff0b40,
+			0x7bf87e5c12fa4f21,
+			0x66abc36ade5d0187,
+			0x4562801601d2edf4,
+		),
+		Element(
+			0x60288e6bcf6cbb5f,
+			0x7d4d5ed1b493f13b,
+			0xc0d324a1544b5878,
+			0x99ca713549b01336,
+		),
+	));
+	
+	assert(p.opEquals(expected));
+	
+	// Wrong buffer size.
+	try {
+		spBuf = sp.ptr[0 .. 33];
+		Point.parse(spBuf);
+		assert(0, "This should have thrown");
+	} catch(Exception e) {}
+	
+	try {
+		spBuf = sp.ptr[0 .. 64];
+		Point.parse(spBuf);
+		assert(0, "This should have thrown");
+	} catch(Exception e) {}
+	
+	try {
+		spBuf = sp.ptr[0 .. 66];
+		Point.parse(spBuf);
+		assert(0, "This should have thrown");
+	} catch(Exception e) {}
+	
+	// Wrong leading byte.
+	sp[0] = 0x00;
+	
+	try {
+		spBuf = sp.ptr[0 .. 33];
+		Point.parse(spBuf);
+		assert(0, "This should have thrown");
+	} catch(Exception e) {}
+	
+	try {
+		spBuf = sp.ptr[0 .. 65];
+		Point.parse(spBuf);
+		assert(0, "This should have thrown");
+	} catch(Exception e) {}
 }
 
 extern(C):
